@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cmath>
 #include <cstdint>
+#include <vector>
+#include <utility>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -206,16 +208,18 @@ TEST_CASE("the backings reach past the cube's edges and never past a cut")
     }
 
     // At the start of a turn of the right layer: the still piece's backings
-    // stop at the cut, the turning piece's start there, neither has one on
-    // the cut, and only the outer ends reach past the cube.
+    // stop at the cut and the turning piece's start there, so neither reaches
+    // into the other; the cut itself has none; and where an outer face's
+    // backing meets the cut it tapers into the box, so nothing of it stands
+    // past the cut face's edge as a tab.
     const ActiveRotation turn{rubiks::cube::Axis::X, rubiks::cube::layer(2),
                               0.0f};
     const WorldScene turning = build_cube_scene(Cube(kSize), turn);
     REQUIRE(turning.pieces.size() == 2);
-    REQUIRE(turning.pieces[0].backings.size() == 5);
-    REQUIRE(turning.pieces[1].backings.size() == 5);
     for (std::size_t piece = 0; piece < 2; ++piece) {
+        REQUIRE(turning.pieces[piece].backings.size() == 5);
         for (const auto& backing : turning.pieces[piece].backings) {
+            bool all_on_cut = true;
             for (const auto& point : backing) {
                 if (piece == 0) {
                     REQUIRE(point.x <= cut + 1e-5f);
@@ -223,7 +227,13 @@ TEST_CASE("the backings reach past the cube's edges and never past a cut")
                     REQUIRE(point.x >= cut - 1e-5f);
                 }
                 REQUIRE(std::abs(point.x) <= outer + 1e-5f);
+                all_on_cut = all_on_cut && point.x == Approx(cut);
+                if (point.x == Approx(cut)) {
+                    REQUIRE(std::abs(point.y) <= kCubeHalfExtent + 1e-5f);
+                    REQUIRE(std::abs(point.z) <= kCubeHalfExtent + 1e-5f);
+                }
             }
+            REQUIRE_FALSE(all_on_cut);
         }
     }
 }
@@ -490,32 +500,135 @@ ClipScene turning_right_layer_from(const Vec3& eye)
 
 }  // namespace
 
+namespace {
+
+/** One coordinate of a point, by axis. */
+float along(const Vec3& point, rubiks::cube::Axis axis)
+{
+    switch (axis) {
+        case rubiks::cube::Axis::X:
+            return point.x;
+        case rubiks::cube::Axis::Y:
+            return point.y;
+        case rubiks::cube::Axis::Z:
+            break;
+    }
+    return point.z;
+}
+
+/**
+ * Checks order_pieces against the order a stack of slabs has to be drawn in.
+ *
+ * The pieces of a turn are slabs along its axis, and a turn about that axis
+ * keeps each in its own interval of it. Seen from an eye at `e` along the
+ * axis, of two slabs on the same side of `e` -- or one holding it -- the
+ * farther has to go first. Two on opposite sides of `e` never cover each
+ * other, so either order will do for them, and so will two the eye sees
+ * edge on, from all but on the plane between them. Every face keeps its index
+ * through view() and order_pieces(), which is how each old piece's new place
+ * is read.
+ */
+void require_far_first(int size, rubiks::cube::Axis axis, int layer, float angle,
+                       const Vec3& eye)
+{
+    const Camera camera(eye, Vec3{0.0f, 0.0f, 0.0f}, Vec3{0.0f, 1.0f, 0.0f},
+                        kVerticalFov, 1.0f, kNearPlane, kFarPlane);
+    const ActiveRotation turn{axis, rubiks::cube::layer(layer), angle};
+    const WorldScene world = build_cube_scene(Cube(size), turn);
+    const ViewScene ordered = world | view(camera) | order_pieces();
+    REQUIRE(ordered.faces.size() == world.faces.size());
+
+    const std::size_t count = world.pieces.size();
+    std::vector<std::size_t> placed(count, count);
+    for (std::size_t i = 0; i < world.faces.size(); ++i) {
+        const std::size_t old_piece = world.faces[i].piece;
+        if (placed[old_piece] == count) placed[old_piece] = ordered.faces[i].piece;
+        REQUIRE(ordered.faces[i].piece == placed[old_piece]);
+    }
+
+    const float e = along(eye, axis);
+    std::vector<std::pair<float, float>> spans;
+    for (const auto& piece : world.pieces) {
+        float low = 1e9f;
+        float high = -1e9f;
+        for (const auto& corner : piece.box) {
+            low = std::min(low, along(corner, axis));
+            high = std::max(high, along(corner, axis));
+        }
+        spans.emplace_back(low, high);
+    }
+    const auto distance = [&](std::size_t piece) {
+        const auto [low, high] = spans[piece];
+        return e < low ? low - e : e > high ? e - high : 0.0f;
+    };
+    const auto side = [&](std::size_t piece) {
+        const auto [low, high] = spans[piece];
+        return e < low ? 1 : e > high ? -1 : 0;
+    };
+
+    for (std::size_t p = 0; p < count; ++p) {
+        for (std::size_t q = 0; q < count; ++q) {
+            if (p == q || (side(p) == -side(q) && side(p) != 0)) continue;
+            // An eye within a thousandth of the plane parting the two sees it
+            // edge on, and either order is right.
+            if (!(distance(p) > distance(q) + 1e-3f)) continue;
+            INFO("size " << size << ", layer " << layer << ", angle " << angle
+                         << ", eye " << eye.x << " " << eye.y << " " << eye.z);
+            REQUIRE(placed[p] < placed[q]);
+        }
+    }
+}
+
+}  // namespace
+
 TEST_CASE("a turn draws its pieces whole, the far one first")
 {
-    // The right layer is a piece of its own and the other two layers one
-    // more. From the right the turning piece is the near one; from the left,
-    // the far one. Its stickers are the red ones: R carries only the right
-    // face's red with it, and every red sticker is on the right face.
-    const Color red = to_color(FaceColor::Red);
-    for (const bool from_right : {true, false}) {
-        const ClipScene scene = turning_right_layer_from(
-            Vec3{from_right ? 3.0f : -3.0f, 3.0f, 3.0f});
-        REQUIRE(scene.pieces.size() == 2);
-        REQUIRE_FALSE(scene.faces.empty());
+    using rubiks::cube::Axis;
 
-        // Each piece together, in the pieces' order.
-        for (std::size_t i = 1; i < scene.faces.size(); ++i) {
-            REQUIRE(scene.faces[i - 1].piece <= scene.faces[i].piece);
-        }
-        const std::size_t turning = from_right ? 1 : 0;
-        bool saw_red = false;
-        for (const auto& face : scene.faces) {
-            if (face.color == red) {
-                saw_red = true;
-                REQUIRE(face.piece == turning);
+    // R seen from the right needs nothing moved; from the left, the turning
+    // layer is the far piece and has to go first. L the other way about.
+    require_far_first(3, Axis::X, 2, 45.0f, Vec3{3.0f, 3.0f, 3.0f});
+    require_far_first(3, Axis::X, 2, 45.0f, Vec3{-3.0f, 3.0f, 3.0f});
+    require_far_first(3, Axis::X, 0, 30.0f, Vec3{3.0f, 3.0f, 3.0f});
+    require_far_first(3, Axis::Y, 1, 30.0f, Vec3{3.0f, -3.0f, 3.0f});
+
+    // And the faces arrive each piece together, in the pieces' order.
+    const ClipScene scene = turning_right_layer_from(Vec3{-3.0f, 3.0f, 3.0f});
+    REQUIRE(scene.pieces.size() == 2);
+    REQUIRE_FALSE(scene.faces.empty());
+    for (std::size_t i = 1; i < scene.faces.size(); ++i) {
+        REQUIRE(scene.faces[i - 1].piece <= scene.faces[i].piece);
+    }
+}
+
+TEST_CASE("thin pieces of a big cube are ordered as surely as thick ones")
+{
+    using rubiks::cube::Axis;
+
+    // One layer of the largest cube, beside an outer one: the plane the two
+    // share has to part them though both are a few hundredths thick. It once
+    // did not, from here, and the cut face was drawn over the orange face.
+    require_far_first(28, Axis::X, 1, 44.99f, Vec3{-3.95f, 1.78f, -2.87f});
+
+    // Single inner layers of two big sizes, and a middle one, round the orbit.
+    const float radius = std::sqrt(27.0f);
+    for (const int size : {13, 28}) {
+        for (const Axis axis : {Axis::X, Axis::Y, Axis::Z}) {
+            for (const int layer : {1, size / 2, size - 2}) {
+                for (const float angle : {0.0f, 45.0f}) {
+                    for (int yaw = 0; yaw < 360; yaw += 30) {
+                        for (const int pitch : {-60, -30, 0, 30, 60}) {
+                            const float y = rubiks::math::to_radians(static_cast<float>(yaw));
+                            const float p = rubiks::math::to_radians(static_cast<float>(pitch));
+                            const Vec3 eye{radius * std::cos(p) * std::cos(y),
+                                           radius * std::sin(p),
+                                           radius * std::cos(p) * std::sin(y)};
+                            require_far_first(size, axis, layer, angle, eye);
+                        }
+                    }
+                }
             }
         }
-        REQUIRE(saw_red == from_right);
     }
 }
 

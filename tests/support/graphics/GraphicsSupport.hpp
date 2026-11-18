@@ -75,9 +75,9 @@ inline constexpr Sample kRightSample{0.69f, 0.61f};
  * gaps are kStickerGapShare of a cubie wide.
  */
 inline constexpr std::array<Sample, 3> kSeamSamples{{
-    {0.371f, 0.648f},  // +Z, between the center and right stickers
-    {0.307f, 0.537f},  // +Z, between the center and top stickers
-    {0.564f, 0.314f},  // +Y, between the center and right stickers
+    {0.37144f, 0.64844f},  // +Z, between the center and right stickers
+    {0.30717f, 0.53711f},  // +Z, between the center and top stickers
+    {0.56428f, 0.31445f},  // +Y, between the center and right stickers
 }};
 
 }  // namespace rubiks::test

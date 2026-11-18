@@ -142,16 +142,22 @@ export const RIGHT_SAMPLE = [0.69, 0.61] as const;
  */
 export const FRONT_RIGHT_COLUMN = [0.433, 0.694] as const;
 
-// Gaps between neighbouring stickers. The cubie body shows there, painted
-// under the stickers, so they read as BODY — but only once the gap is
-// comfortably wider than the anti-aliased edges around it, which it is from
-// a region this many pixels across.
+// Gaps between neighbouring stickers: the middle of each, projected from the
+// home viewpoint (the edges between cubies, x or y = 1/3 on the cube's face),
+// to the same digits as tests/support/graphics/GraphicsSupport.hpp. The
+// cubie body shows there, painted under the stickers, so they read as BODY —
+// but only once the gap is wide enough that a sample a pixel off its middle,
+// as rounding the region's place in the canvas can put it, is still clear
+// of the anti-aliased edges. Rendered natively at every region side from 922
+// to 2000, every pixel within one of all three samples is BODY; at 921 and
+// at sizes below, the narrowest, on the foreshortened top face, is not
+// always. The threshold keeps a margin over that.
 export const SEAM_SAMPLES = [
-  [0.371, 0.648],
-  [0.307, 0.537],
-  [0.564, 0.314],
+  [0.37144, 0.64844],
+  [0.30717, 0.53711],
+  [0.56428, 0.31445],
 ] as const;
-export const SEAM_MIN_REGION = 594;
+export const SEAM_MIN_REGION = 960;
 
 /**
  * Where a cut face shows part way through a turn, as fractions of the 3D
@@ -562,10 +568,13 @@ export function assertFacesAndCorners(probe: CanvasProbe): void {
 
   // A seam is only a few pixels wide, so below this size anti-aliasing
   // reaches the sample point and the check is not meaningful.
-  if (cubeRegionSide(probe) >= SEAM_MIN_REGION) {
-    for (const seam of probe.seams) {
-      expect(seam).toEqual(BODY);
-    }
+  if (cubeRegionSide(probe) >= SEAM_MIN_REGION) assertSeams(probe);
+}
+
+/** The three seam samples read as the cubie body, unlit and exact. */
+export function assertSeams(probe: CanvasProbe): void {
+  for (const seam of probe.seams) {
+    expect(seam).toEqual(BODY);
   }
 }
 

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <optional>
 #include <utility>
@@ -83,14 +84,28 @@ bool shadow_in_front(const ShadowGroup<math::Vec3>& shadow, float near_plane)
 }
 
 /**
+ * How far inside a face plane, in view-space units, a corner on it may come
+ * out once rounded.
+ *
+ * A distance, not a share of the box: the thinnest piece, one layer of the
+ * largest cube, is a few hundredths across, and a tolerance that shrank with
+ * it fell below the rounding of the view transform itself, so the plane two
+ * thin pieces share stopped parting them. A thousandth is far above that
+ * rounding and far below the thinnest piece.
+ */
+constexpr float kPartedTolerance = 1e-3f;
+
+/**
  * Whether the eye is on `beyond`'s side of a face plane of `box` that parts
- * the two, or nothing when no face plane of `box` parts them.
+ * the two, or nothing when no face plane of `box` parts them -- or one does
+ * but the eye is on it, within kPartedTolerance: seen edge on, the two cannot
+ * cover each other, and either order is right.
  *
  * A face of a box is the four corners sharing one bit of their index (see
- * PieceOf::box), and since the box is a box its outward normal is the way from the
- * box's centre to the face's. `beyond` is parted by that plane when no corner
- * of it is inside, give or take the rounding a turned box picks up: two
- * pieces of one stack share a plane, and half the corners lie on it.
+ * PieceOf::box), and since the box is a box its outward normal is the way from
+ * the box's centre to the face's. `beyond` is parted by that plane when no
+ * corner of it is inside by more than kPartedTolerance: two pieces of one
+ * stack share a plane, and half the corners lie on it, give or take rounding.
  */
 std::optional<bool> side_of_eye(const std::array<math::Vec3, 8>& box,
                                 const std::array<math::Vec3, 8>& beyond)
@@ -104,14 +119,15 @@ std::optional<bool> side_of_eye(const std::array<math::Vec3, 8>& box,
             for (std::size_t i = 0; i < box.size(); ++i) {
                 if ((i & bit) == value) middle = middle + box[i] * 0.25f;
             }
-            const math::Vec3 normal = middle - centre;
-            const float tolerance = 1e-4f * math::dot(normal, normal);
+            const math::Vec3 normal = math::normalize(middle - centre);
             const bool parted = std::all_of(
                 beyond.begin(), beyond.end(), [&](const math::Vec3& corner) {
-                    return math::dot(corner - middle, normal) >= -tolerance;
+                    return math::dot(corner - middle, normal) >= -kPartedTolerance;
                 });
-            if (parted) return math::dot(math::Vec3{0.0f, 0.0f, 0.0f} - middle,
-                                         normal) > 0.0f;
+            if (!parted) continue;
+            const float eye = math::dot(math::Vec3{0.0f, 0.0f, 0.0f} - middle, normal);
+            if (std::abs(eye) <= kPartedTolerance) return std::nullopt;
+            return eye > 0.0f;
         }
     }
     return std::nullopt;
@@ -159,20 +175,21 @@ ViewScene OrderPass::operator()(ViewScene scene) const
     if (count < 2) return scene;
 
     // drawn_before[a][b]: a face plane of one parts a from b, and the eye --
-    // the origin of view space -- is on b's side of it.
+    // the origin of view space -- is on b's side of it. Each pair is decided
+    // once, from a's planes or else b's: asked from both, an eye on the plane
+    // the two share could have its side rounded each way, and the two answers
+    // would leave no order at all.
     std::vector<std::vector<bool>> drawn_before(count,
                                                 std::vector<bool>(count, false));
     for (std::size_t a = 0; a < count; ++a) {
-        for (std::size_t b = 0; b < count; ++b) {
-            if (a == b) continue;
-            if (const auto eye_side = side_of_eye(scene.pieces[a].box,
-                                                  scene.pieces[b].box)) {
-                // eye_side: the eye is beyond a's plane, where b lies.
-                if (*eye_side) {
-                    drawn_before[a][b] = true;
-                } else {
-                    drawn_before[b][a] = true;
-                }
+        for (std::size_t b = a + 1; b < count; ++b) {
+            const auto& box_a = scene.pieces[a].box;
+            const auto& box_b = scene.pieces[b].box;
+            if (const auto beyond_a = side_of_eye(box_a, box_b)) {
+                // The eye is beyond a's plane, where b lies, or it is not.
+                drawn_before[*beyond_a ? a : b][*beyond_a ? b : a] = true;
+            } else if (const auto beyond_b = side_of_eye(box_b, box_a)) {
+                drawn_before[*beyond_b ? b : a][*beyond_b ? a : b] = true;
             }
         }
     }

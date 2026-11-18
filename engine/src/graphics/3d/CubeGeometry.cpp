@@ -96,32 +96,27 @@ constexpr float kH = 1.0f;
 }
 
 /**
- * A backing's rectangle with every corner that stands off the cube along both
- * of its edges cut across, `reach` back along each edge.
+ * A backing's rectangle with every corner cut across, `reach` back along each
+ * of its two edges.
  *
- * Such a corner is where the reaches past two of the cube's edges meet, and
- * whole it would stand out past the cube's corner as a square spike. A corner
- * at a cut reaches one way only and stays whole, given twice so every backing
- * has the same eight points, in the rectangle's winding.
+ * Every corner of a backing stands off its piece's box, one way or both, and
+ * cut across like that the backing stays inside a 45-degree bevel round the
+ * box's edges. Where two reaches meet, past the cube's corner, a whole corner
+ * would be a square spike; where one reach runs into a cut, it would be a
+ * tab standing past the cut face.
  */
 [[nodiscard]] std::array<Vec3, kBackingPoints> cut_corners(
     const std::array<Vec3, 4>& rectangle, float reach) noexcept
 {
-    const float beyond = kCubeHalfExtent + 0.5f * reach;
     std::array<Vec3, kBackingPoints> points{};
     for (std::size_t i = 0; i < rectangle.size(); ++i) {
         const Vec3& corner = rectangle[i];
-        const Vec3& before = rectangle[(i + rectangle.size() - 1) % rectangle.size()];
-        const Vec3& after = rectangle[(i + 1) % rectangle.size()];
-        const int off = (std::abs(corner.x) > beyond ? 1 : 0) +
-                        (std::abs(corner.y) > beyond ? 1 : 0) +
-                        (std::abs(corner.z) > beyond ? 1 : 0);
         const auto toward = [&](const Vec3& other) {
             const Vec3 edge = other - corner;
             return corner + edge * (reach / math::length(edge));
         };
-        points[2 * i] = off == 2 ? toward(before) : corner;
-        points[2 * i + 1] = off == 2 ? toward(after) : corner;
+        points[2 * i] = toward(rectangle[(i + rectangle.size() - 1) % rectangle.size()]);
+        points[2 * i + 1] = toward(rectangle[(i + 1) % rectangle.size()]);
     }
     return points;
 }
@@ -148,9 +143,11 @@ constexpr float kH = 1.0f;
  * that is the cube itself; during a turn the union of the runs is the cube at
  * that angle, so the union of their shadows is its shadow, whatever N is.
  *
- * A backing goes under each of its outer faces, reaching `body_reach()` past
- * the cube's edges and stopping at a cut. A cut has no backing: the body
- * there is the cut face, and two pieces never overlap.
+ * A backing goes under each of its outer faces, in the face's plane,
+ * reaching `body_reach()` past the cube's edges and stopping at a cut, so
+ * that two pieces never overlap. A cut has no backing: the cut face is body
+ * already, lit as a face, and an unlit band round it would read as a frame
+ * lighter or darker than the face it frames.
  */
 std::size_t append_piece(WorldScene& scene, Axis axis, int first, int last,
                          int size, const std::optional<math::Quaternion>& turn)
