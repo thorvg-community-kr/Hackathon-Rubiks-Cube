@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -18,16 +19,41 @@
 namespace rubiks::graphics {
 
 /**
- * A box that casts a shadow but is never drawn.
+ * One rigid piece of the cube, in any space: the whole cube at rest, one run
+ * of layers during a turn.
  *
- * The stickers cannot cast the shadow themselves: they have seams between
- * them and no body behind them, so their shadow would be a grid. A caster is
- * a whole run of layers -- the whole cube at rest -- and its eight corners are
- * enough, because the shadow of a convex box is the convex hull of the shadows
- * of its corners.
+ * Its box casts the shadow. The stickers cannot cast it themselves: they have
+ * gaps between them, so their shadow would be a grid, and the shadow of a
+ * convex box is the convex hull of the shadows of its eight corners.
+ *
+ * The box and the backings are also the piece's body, drawn in the body
+ * colour straight before the piece's own faces: what shows in the gaps
+ * between its stickers is its own body, and never a piece behind it.
  */
-struct Caster {
-    std::array<math::Vec3, 8> corners{};
+/** How many points a backing has; see PieceOf::backings. */
+inline constexpr std::size_t kBackingPoints = 8;
+
+template <typename Point>
+struct PieceOf {
+    /**
+     * The corners, numbered by three bits, one per edge direction of the box
+     * (4 for x, 2 for y and 1 for z before any turn), set at the high end; so
+     * the four corners sharing a bit's value are one face of the box.
+     */
+    std::array<Point, 8> box{};
+    /**
+     * A body-coloured backing under each outer face of the box, in the face's
+     * plane: the face reaching `body_reach()` past the cube's edges, stopping
+     * at a cut. It shows in the half gap round the outermost stickers, and
+     * past the cube's edge on the silhouette, where only that face is seen --
+     * in the face's plane, so it foreshortens with the face the way the gaps
+     * between its stickers do. Wound like a face, and culled like one.
+     *
+     * Eight points: the rectangle with each corner that stands off the cube
+     * both ways cut across, so the two reaches do not meet in a square spike
+     * beyond the cube's corner. A corner left whole is there twice.
+     */
+    std::vector<std::array<Point, kBackingPoints>> backings;
 };
 
 /**
@@ -40,7 +66,7 @@ struct Caster {
  */
 template <typename Point>
 struct ShadowGroup {
-    /** One convex polygon on the ground per caster. */
+    /** One convex polygon on the ground per piece. */
     std::vector<std::vector<Point>> polygons;
     /** Where the shadow is darkest: the cube's centre dropped onto the ground. */
     Point fade_start{};
@@ -111,12 +137,13 @@ struct ShadingOf {
 struct WorldFace {
     std::array<math::Vec3, 4> points{};
     Color color{};
+    /** The index of the piece the face lies on, in the scene's `pieces`. */
+    std::size_t piece = 0;
 };
 
 struct WorldScene {
     std::vector<WorldFace> faces;
-    /** Shadow casters, read by the shadow pass and drawn by nobody. */
-    std::vector<Caster> casters;
+    std::vector<PieceOf<math::Vec3>> pieces;
     /** Filled in by the shadow pass; empty until then and when there is none. */
     std::optional<ShadowGroup<math::Vec3>> shadow;
 };
@@ -130,12 +157,14 @@ struct ViewFace {
     std::optional<ShadingOf<math::Vec3>> shading;
     /** Set by the lighting pass: one per lamp whose glint reaches this face. */
     std::vector<HighlightOf<math::Vec3>> highlights;
+    /** As in WorldFace. */
+    std::size_t piece = 0;
 };
 
 struct ViewScene {
     std::vector<ViewFace> faces;
-    /** The casters' corners in view space, on their way to becoming bodies. */
-    std::vector<std::array<math::Vec3, 8>> casters;
+    /** Once ordered, in the order they are drawn: far first. */
+    std::vector<PieceOf<math::Vec3>> pieces;
     std::optional<ShadowGroup<math::Vec3>> shadow;
 };
 
@@ -143,8 +172,9 @@ struct ViewScene {
  * Quad after the perspective divide.
  *
  * Culling reads `ndc`, which still has +Y up so a front face has a positive
- * signed area. Depth sorting reads `depth`, the mean view-space z of the four
- * corners; it is negative in front of the camera and decreases with distance.
+ * signed area. Depth sorting reads `piece` and then `depth`, the mean
+ * view-space z of the four corners; it is negative in front of the camera and
+ * decreases with distance.
  */
 struct ClipFace {
     std::array<math::Vec2, 4> ndc{};
@@ -152,12 +182,17 @@ struct ClipFace {
     Color color{};
     std::optional<ShadingOf<math::Vec2>> shading;
     std::vector<HighlightOf<math::Vec2>> highlights;
+    std::size_t piece = 0;
 };
 
 struct ClipScene {
     std::vector<ClipFace> faces;
-    /** The casters' corners in NDC; a caster reaching the near plane is dropped. */
-    std::vector<std::array<math::Vec2, 8>> casters;
+    /**
+     * At the same index as in the view scene, so a face's `piece` still names
+     * its own. A piece whose box reaches the near plane goes whole, like a
+     * face, and is left empty: drawn as no body.
+     */
+    std::vector<std::optional<PieceOf<math::Vec2>>> pieces;
     std::optional<ShadowGroup<math::Vec2>> shadow;
 };
 

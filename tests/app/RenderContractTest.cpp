@@ -38,19 +38,16 @@ namespace {
 
 using namespace rubiks::test::contract;
 using rubiks::test::Rgba;
+using rubiks::test::kSeamSamples;
+using rubiks::test::kFrontSample;
+using rubiks::test::kRightSample;
+using rubiks::test::kUpSample;
+using rubiks::test::Sample;
 
 struct Region {
     float x;
     float y;
     float side;  // the 3D region is square; for the net this is one face
-};
-
-// Gaps between neighbouring stickers. The cubie body shows there -- painted
-// under the stickers as each slab's silhouette -- so they are exactly kBody.
-constexpr Sample kSeamSamples[]{
-    {0.377f, 0.645f},  // +Z, between the center and right stickers
-    {0.313f, 0.534f},  // +Z, between the center and top stickers
-    {0.564f, 0.321f},  // +Y, between the center and front-right stickers
 };
 
 /** One face of the unfolded cube: its place in the cross and its color. */
@@ -345,7 +342,7 @@ TEST_CASE("the contract holds on non-square buffers")
 
 TEST_CASE("the seams between stickers show the cubie body")
 {
-    // A seam is about 5.5 pixels wide at this size. Below roughly 1024 the
+    // A seam is about 4 pixels wide at this size. Below roughly 1024 the
     // gap is thin enough that anti-aliasing reaches the sample point, so the
     // smaller sizes above check faces and corners only.
     constexpr std::uint32_t kSize = 1024;
@@ -355,6 +352,7 @@ TEST_CASE("the seams between stickers show the cubie body")
 
     // Contract v4: the body colour, unlit and exact, not the background --
     // and not any sticker colour either, which is what makes a seam decisive.
+    // The body is painted under the stickers as each slab's silhouette.
     for (const auto& seam : kSeamSamples) {
         require_pixel(pixel_in_cube(seam, kSize, kSize), kBody);
     }

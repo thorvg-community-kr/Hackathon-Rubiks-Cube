@@ -84,11 +84,11 @@ ViewFace facing_face(float depth, bool towards_eye)
 }
 
 /** Interval a caster covers along one axis. */
-std::pair<float, float> extent_along(const Caster& caster, Axis axis)
+std::pair<float, float> extent_along(const PieceOf<Vec3>& piece, Axis axis)
 {
     float low = 1e9f;
     float high = -1e9f;
-    for (const auto& corner : caster.corners) {
+    for (const auto& corner : piece.box) {
         const float value = axis == Axis::X ? corner.x
                             : axis == Axis::Y ? corner.y
                                               : corner.z;
@@ -260,17 +260,17 @@ TEST_CASE("convex hull of a box's corners drops the inside and orders the rim")
 TEST_CASE("a resting cube casts as one box, the cube itself")
 {
     const WorldScene scene = build_cube_scene(Cube(3));
-    REQUIRE(scene.casters.size() == 1);
+    REQUIRE(scene.pieces.size() == 1);
 
     for (const auto axis : rubiks::cube::axes()) {
-        const auto [low, high] = extent_along(scene.casters[0], axis);
+        const auto [low, high] = extent_along(scene.pieces[0], axis);
         REQUIRE(low == Approx(-kCubeHalfExtent));
         REQUIRE(high == Approx(kCubeHalfExtent));
     }
     REQUIRE_FALSE(scene.shadow.has_value());
 }
 
-TEST_CASE("a turn cuts the casters into runs along its axis alone")
+TEST_CASE("a turn cuts the pieces into runs along its axis alone")
 {
     const Cube state(3);
 
@@ -278,41 +278,41 @@ TEST_CASE("a turn cuts the casters into runs along its axis alone")
     {
         const ActiveRotation turn{Axis::X, rubiks::cube::layer(2), 45.0f};
         const WorldScene scene = build_cube_scene(state, turn);
-        REQUIRE(scene.casters.size() == 2);
+        REQUIRE(scene.pieces.size() == 2);
 
         // The still run spans the two left layers along X and the whole cube
         // across it; nothing was cut along Y or Z.
-        const auto [low, high] = extent_along(scene.casters[0], Axis::X);
+        const auto [low, high] = extent_along(scene.pieces[0], Axis::X);
         REQUIRE(low == Approx(-1.0f));
         REQUIRE(high == Approx(1.0f / 3.0f));
-        REQUIRE(extent_along(scene.casters[0], Axis::Y).first == Approx(-1.0f));
-        REQUIRE(extent_along(scene.casters[0], Axis::Z).second == Approx(1.0f));
+        REQUIRE(extent_along(scene.pieces[0], Axis::Y).first == Approx(-1.0f));
+        REQUIRE(extent_along(scene.pieces[0], Axis::Z).second == Approx(1.0f));
 
         // The turning run is one layer thick along X and has been rotated
         // about X, so its Y and Z extents have grown to the diagonal.
-        const auto [turn_low, turn_high] = extent_along(scene.casters[1], Axis::X);
+        const auto [turn_low, turn_high] = extent_along(scene.pieces[1], Axis::X);
         REQUIRE(turn_low == Approx(1.0f / 3.0f));
         REQUIRE(turn_high == Approx(1.0f));
-        REQUIRE(extent_along(scene.casters[1], Axis::Y).second ==
+        REQUIRE(extent_along(scene.pieces[1], Axis::Y).second ==
                 Approx(std::sqrt(2.0f)).margin(1e-4));
     }
 
     SECTION("Rw: still, turning")
     {
         const ActiveRotation turn{Axis::X, rubiks::cube::layers_through(1, 2), 30.0f};
-        REQUIRE(build_cube_scene(state, turn).casters.size() == 2);
+        REQUIRE(build_cube_scene(state, turn).pieces.size() == 2);
     }
 
     SECTION("M: still, turning, still -- the most a run mask makes")
     {
         const ActiveRotation turn{Axis::Y, rubiks::cube::layer(1), 30.0f};
         const WorldScene scene = build_cube_scene(state, turn);
-        REQUIRE(scene.casters.size() == 3);
+        REQUIRE(scene.pieces.size() == 3);
 
         // The runs partition the axis without gaps or overlaps.
         std::vector<std::pair<float, float>> runs;
-        for (const auto& caster : scene.casters) {
-            runs.push_back(extent_along(caster, Axis::Y));
+        for (const auto& piece : scene.pieces) {
+            runs.push_back(extent_along(piece, Axis::Y));
         }
         std::sort(runs.begin(), runs.end());
         REQUIRE(runs.front().first == Approx(-1.0f));
@@ -326,11 +326,11 @@ TEST_CASE("a turn cuts the casters into runs along its axis alone")
     {
         const ActiveRotation turn{Axis::Z, rubiks::cube::layer(0), 0.0f};
         const WorldScene scene = build_cube_scene(state, turn);
-        REQUIRE(scene.casters.size() == 2);
+        REQUIRE(scene.pieces.size() == 2);
 
         float low = 1e9f, high = -1e9f;
-        for (const auto& caster : scene.casters) {
-            const auto [run_low, run_high] = extent_along(caster, Axis::Z);
+        for (const auto& piece : scene.pieces) {
+            const auto [run_low, run_high] = extent_along(piece, Axis::Z);
             low = std::min(low, run_low);
             high = std::max(high, run_high);
         }
@@ -338,11 +338,11 @@ TEST_CASE("a turn cuts the casters into runs along its axis alone")
         REQUIRE(high == Approx(1.0f));
     }
 
-    SECTION("a bigger cube makes no more casters")
+    SECTION("a bigger cube makes no more pieces")
     {
         const Cube big(9);
         const ActiveRotation turn{Axis::X, rubiks::cube::layers_through(2, 4), 20.0f};
-        REQUIRE(build_cube_scene(big, turn).casters.size() == 3);
+        REQUIRE(build_cube_scene(big, turn).pieces.size() == 3);
     }
 }
 
@@ -362,10 +362,10 @@ TEST_CASE("the shadow's points travel through the passes like face corners")
     shadow.fade_end = face.points[2];
     shadow.opacity = 77;
     scene.shadow = shadow;
-    // And a caster, which becomes a body on screen.
-    Caster box;
-    for (std::size_t i = 0; i < 8; ++i) box.corners[i] = face.points[i % 4];
-    scene.casters.push_back(box);
+    // And a piece, which becomes a body on screen.
+    PieceOf<Vec3> piece;
+    for (std::size_t i = 0; i < 8; ++i) piece.box[i] = face.points[i % 4];
+    scene.pieces.push_back(piece);
 
     const Rect region{40.0f, 10.0f, 200.0f, 200.0f};
     const Camera camera = identity_camera();
@@ -400,7 +400,7 @@ TEST_CASE("the shadow's points travel through the passes like face corners")
 
     // The caster arrives as a body: a flat box's silhouette is its face.
     REQUIRE(result.bodies.size() == 1);
-    REQUIRE(result.bodies[0].size() == 4);
+    REQUIRE(result.bodies[0].outlines.front().size() == 4);
 
     SECTION("the body is drawn whether or not there is a shadow")
     {
@@ -944,8 +944,10 @@ TEST_CASE("the whole chain puts the shadow below the cube inside its region")
     REQUIRE(scene.faces.size() == 27);
     REQUIRE(scene.shadow.has_value());
     REQUIRE(scene.bodies.size() == 1);
-    // A box seen corner-on is a hexagon.
-    REQUIRE(scene.bodies[0].size() == 6);
+    // A box seen corner-on is a hexagon, and three of its faces' sheets face
+    // the eye.
+    REQUIRE(scene.bodies[0].outlines.front().size() == 6);
+    REQUIRE(scene.bodies[0].outlines.size() == 1 + 3);
 
     // The anchor under the cube is lower on screen than the cube's middle,
     // and the far anchor is higher up: the shadow leans away behind it.
@@ -991,11 +993,11 @@ TEST_CASE("the home viewpoint's planes shade to the bytes the contract names")
     REQUIRE(red.has_value());
 
     // +Y at 275 out of 255 on the paper white (216 -> 233, no clamp); +Z at
-    // 230 and +X at 211, on the stickers' colours with their saturation
+    // 229 and +X at 211, on the stickers' colours with their saturation
     // raised first.
     REQUIRE(int{white->r} == (216 * 275 + 127) / 255);
-    REQUIRE(int{green->g} == (165 * 230 + 127) / 255);
-    REQUIRE(int{green->b} == (61 * 230 + 127) / 255);
+    REQUIRE(int{green->g} == (165 * 229 + 127) / 255);
+    REQUIRE(int{green->b} == (61 * 229 + 127) / 255);
     REQUIRE(int{red->r} == (215 * 211 + 127) / 255);
     REQUIRE(int{red->b} == (51 * 211 + 127) / 255);
 

@@ -25,6 +25,10 @@ namespace {
 
 using namespace rubiks::test::contract;
 using rubiks::test::Rgba;
+using rubiks::test::kFrontSample;
+using rubiks::test::kRightSample;
+using rubiks::test::kUpSample;
+using rubiks::test::Sample;
 
 // The six faces as the 3D view shows them: a sticker's colour, saturated, at
 // its plane's brightness. Named by the face so an orbit test reads as which

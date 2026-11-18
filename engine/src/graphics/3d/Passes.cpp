@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "graphics/3d/ConvexHull.hpp"
@@ -18,16 +19,32 @@ math::Vec3 to_vec3(const math::Vec4& v) noexcept
     return math::Vec3{v.x, v.y, v.z};
 }
 
-/** Twice the signed area of a quad; positive for counter-clockwise winding. */
-float signed_area_doubled(const std::array<math::Vec2, kCorners>& points) noexcept
+/** Twice the signed area of a polygon; positive for counter-clockwise winding. */
+template <std::size_t Count>
+float signed_area_doubled(const std::array<math::Vec2, Count>& points) noexcept
 {
     float sum = 0.0f;
-    for (std::size_t i = 0; i < kCorners; ++i) {
+    for (std::size_t i = 0; i < Count; ++i) {
         const auto& current = points[i];
-        const auto& next = points[(i + 1) % kCorners];
+        const auto& next = points[(i + 1) % Count];
         sum += current.x * next.y - next.x * current.y;
     }
     return sum;
+}
+
+/** A piece with the same map applied to its box and every backing. */
+template <typename From, typename To, typename Map>
+PieceOf<To> map_piece(const PieceOf<From>& piece, Map&& map)
+{
+    PieceOf<To> result;
+    for (std::size_t i = 0; i < piece.box.size(); ++i) result.box[i] = map(piece.box[i]);
+    result.backings.reserve(piece.backings.size());
+    for (const auto& backing : piece.backings) {
+        std::array<To, kBackingPoints> mapped{};
+        for (std::size_t i = 0; i < mapped.size(); ++i) mapped[i] = map(backing[i]);
+        result.backings.push_back(mapped);
+    }
+    return result;
 }
 
 /** The same map applied to every point of a shadow group. */
@@ -65,6 +82,41 @@ bool shadow_in_front(const ShadowGroup<math::Vec3>& shadow, float near_plane)
     return in_front(shadow.fade_start) && in_front(shadow.fade_end);
 }
 
+/**
+ * Whether the eye is on `beyond`'s side of a face plane of `box` that parts
+ * the two, or nothing when no face plane of `box` parts them.
+ *
+ * A face of a box is the four corners sharing one bit of their index (see
+ * PieceOf::box), and since the box is a box its outward normal is the way from the
+ * box's centre to the face's. `beyond` is parted by that plane when no corner
+ * of it is inside, give or take the rounding a turned box picks up: two
+ * pieces of one stack share a plane, and half the corners lie on it.
+ */
+std::optional<bool> side_of_eye(const std::array<math::Vec3, 8>& box,
+                                const std::array<math::Vec3, 8>& beyond)
+{
+    math::Vec3 centre{0.0f, 0.0f, 0.0f};
+    for (const auto& corner : box) centre = centre + corner * 0.125f;
+
+    for (const std::size_t bit : {std::size_t{4}, std::size_t{2}, std::size_t{1}}) {
+        for (const std::size_t value : {std::size_t{0}, bit}) {
+            math::Vec3 middle{0.0f, 0.0f, 0.0f};
+            for (std::size_t i = 0; i < box.size(); ++i) {
+                if ((i & bit) == value) middle = middle + box[i] * 0.25f;
+            }
+            const math::Vec3 normal = middle - centre;
+            const float tolerance = 1e-4f * math::dot(normal, normal);
+            const bool parted = std::all_of(
+                beyond.begin(), beyond.end(), [&](const math::Vec3& corner) {
+                    return math::dot(corner - middle, normal) >= -tolerance;
+                });
+            if (parted) return math::dot(math::Vec3{0.0f, 0.0f, 0.0f} - middle,
+                                         normal) > 0.0f;
+        }
+    }
+    return std::nullopt;
+}
+
 }  // namespace
 
 ViewScene ViewPass::operator()(const WorldScene& scene) const
@@ -79,6 +131,7 @@ ViewScene ViewPass::operator()(const WorldScene& scene) const
     for (const auto& face : scene.faces) {
         ViewFace transformed;
         transformed.color = face.color;
+        transformed.piece = face.piece;
         for (std::size_t i = 0; i < kCorners; ++i) {
             transformed.points[i] = to_view(face.points[i]);
         }
@@ -87,14 +140,10 @@ ViewScene ViewPass::operator()(const WorldScene& scene) const
 
     result.shadow = map_shadow<math::Vec3, math::Vec3>(scene.shadow, to_view);
 
-    // The casters come along to become the bodies drawn under the stickers.
-    result.casters.reserve(scene.casters.size());
-    for (const auto& caster : scene.casters) {
-        std::array<math::Vec3, 8> corners{};
-        for (std::size_t i = 0; i < corners.size(); ++i) {
-            corners[i] = to_view(caster.corners[i]);
-        }
-        result.casters.push_back(corners);
+    // The pieces come along to become the bodies drawn under their faces.
+    result.pieces.reserve(scene.pieces.size());
+    for (const auto& piece : scene.pieces) {
+        result.pieces.push_back(map_piece<math::Vec3, math::Vec3>(piece, to_view));
     }
     return result;
 }
@@ -102,6 +151,75 @@ ViewScene ViewPass::operator()(const WorldScene& scene) const
 ViewPass view(const Camera& camera) noexcept
 {
     return ViewPass{camera.view()};
+}
+
+ViewScene OrderPass::operator()(ViewScene scene) const
+{
+    const std::size_t count = scene.pieces.size();
+    if (count < 2) return scene;
+
+    // drawn_before[a][b]: a face plane of one parts a from b, and the eye --
+    // the origin of view space -- is on b's side of it.
+    std::vector<std::vector<bool>> drawn_before(count,
+                                                std::vector<bool>(count, false));
+    for (std::size_t a = 0; a < count; ++a) {
+        for (std::size_t b = 0; b < count; ++b) {
+            if (a == b) continue;
+            if (const auto eye_side = side_of_eye(scene.pieces[a].box,
+                                                  scene.pieces[b].box)) {
+                // eye_side: the eye is beyond a's plane, where b lies.
+                if (*eye_side) {
+                    drawn_before[a][b] = true;
+                } else {
+                    drawn_before[b][a] = true;
+                }
+            }
+        }
+    }
+
+    // Each step takes a piece that nothing left has to go before. A stack
+    // always has one; were there none, the lowest index left goes, so the
+    // result is a permutation whatever the geometry.
+    std::vector<std::size_t> order;
+    std::vector<bool> placed(count, false);
+    order.reserve(count);
+    while (order.size() < count) {
+        std::size_t next = count;
+        for (std::size_t candidate = 0; candidate < count && next == count;
+             ++candidate) {
+            if (placed[candidate]) continue;
+            bool free = true;
+            for (std::size_t other = 0; other < count && free; ++other) {
+                free = placed[other] || other == candidate ||
+                       !drawn_before[other][candidate];
+            }
+            if (free) next = candidate;
+        }
+        if (next == count) {
+            next = static_cast<std::size_t>(
+                std::find(placed.begin(), placed.end(), false) - placed.begin());
+        }
+        placed[next] = true;
+        order.push_back(next);
+    }
+
+    std::vector<std::size_t> rank(count, 0);
+    std::vector<PieceOf<math::Vec3>> ordered;
+    ordered.reserve(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        rank[order[i]] = i;
+        ordered.push_back(std::move(scene.pieces[order[i]]));
+    }
+    scene.pieces = std::move(ordered);
+    for (auto& face : scene.faces) {
+        if (face.piece < count) face.piece = rank[face.piece];
+    }
+    return scene;
+}
+
+OrderPass order_pieces() noexcept
+{
+    return OrderPass{};
 }
 
 ClipScene ProjectPass::operator()(const ViewScene& scene) const
@@ -119,6 +237,7 @@ ClipScene ProjectPass::operator()(const ViewScene& scene) const
     for (const auto& face : scene.faces) {
         ClipFace projected;
         projected.color = face.color;
+        projected.piece = face.piece;
 
         float depth_sum = 0.0f;
         bool in_front = true;
@@ -205,16 +324,21 @@ ClipScene ProjectPass::operator()(const ViewScene& scene) const
         result.shadow = map_shadow<math::Vec3, math::Vec2>(scene.shadow, to_ndc);
     }
 
-    // A caster with a corner at the near plane goes whole, like a face.
+    // A piece whose box reaches the near plane goes whole, like a face, and
+    // keeps its place so the faces' pieces still name the right ones. Its
+    // backings lie on its box's faces and reach only a hair past them, so
+    // they go with it.
     const float limit = -near_plane;
-    for (const auto& caster : scene.casters) {
+    result.pieces.reserve(scene.pieces.size());
+    for (const auto& piece : scene.pieces) {
         const bool in_front = std::all_of(
-            caster.begin(), caster.end(),
+            piece.box.begin(), piece.box.end(),
             [limit](const math::Vec3& corner) { return corner.z < limit; });
-        if (!in_front) continue;
-        std::array<math::Vec2, 8> corners{};
-        for (std::size_t i = 0; i < corners.size(); ++i) corners[i] = to_ndc(caster[i]);
-        result.casters.push_back(corners);
+        if (!in_front) {
+            result.pieces.emplace_back(std::nullopt);
+            continue;
+        }
+        result.pieces.emplace_back(map_piece<math::Vec3, math::Vec2>(piece, to_ndc));
     }
     return result;
 }
@@ -232,6 +356,15 @@ ClipScene CullPass::operator()(ClipScene scene) const
                                    return signed_area_doubled(face.ndc) <= 0.0f;
                                }),
                 faces.end());
+    for (auto& piece : scene.pieces) {
+        if (!piece) continue;
+        auto& backings = piece->backings;
+        backings.erase(std::remove_if(backings.begin(), backings.end(),
+                                      [](const std::array<math::Vec2, kBackingPoints>& backing) {
+                                          return signed_area_doubled(backing) <= 0.0f;
+                                      }),
+                       backings.end());
+    }
     return scene;
 }
 
@@ -244,9 +377,11 @@ ClipScene DepthSortPass::operator()(ClipScene scene) const
 {
     // Ascending view-space z is back to front: z is negative in front of the
     // camera and decreases with distance.
-    std::stable_sort(
-        scene.faces.begin(), scene.faces.end(),
-        [](const ClipFace& a, const ClipFace& b) { return a.depth < b.depth; });
+    std::stable_sort(scene.faces.begin(), scene.faces.end(),
+                     [](const ClipFace& a, const ClipFace& b) {
+                         if (a.piece != b.piece) return a.piece < b.piece;
+                         return a.depth < b.depth;
+                     });
     return scene;
 }
 
@@ -299,13 +434,32 @@ RenderScene ViewportPass::operator()(const ClipScene& scene) const
         result.shadow = std::move(shadow);
     }
 
-    // The bodies: a convex box's outline on screen is the hull of its corners.
-    result.bodies.reserve(scene.casters.size());
-    for (const auto& caster : scene.casters) {
+    // The bodies: a convex box's outline on screen is the hull of its corners,
+    // and its backings turned towards the eye go on it. A body goes before
+    // the first face of its own piece; the faces arrive grouped by piece in
+    // the pieces' order, so that is a running count.
+    result.bodies.reserve(scene.pieces.size());
+    std::size_t first_face = 0;
+    for (std::size_t index = 0; index < scene.pieces.size(); ++index) {
+        while (first_face < scene.faces.size() &&
+               scene.faces[first_face].piece < index) {
+            ++first_face;
+        }
+        const auto& piece = scene.pieces[index];
+        if (!piece) continue;
+        RenderBody body;
+        body.first_face = first_face;
         std::vector<math::Vec2> corners;
-        corners.reserve(caster.size());
-        for (const auto& corner : caster) corners.push_back(to_pixels(corner));
-        result.bodies.push_back(convex_hull(std::move(corners)));
+        corners.reserve(piece->box.size());
+        for (const auto& corner : piece->box) corners.push_back(to_pixels(corner));
+        body.outlines.push_back(convex_hull(std::move(corners)));
+        for (const auto& backing : piece->backings) {
+            std::vector<math::Vec2> outline;
+            outline.reserve(backing.size());
+            for (const auto& point : backing) outline.push_back(to_pixels(point));
+            body.outlines.push_back(std::move(outline));
+        }
+        result.bodies.push_back(std::move(body));
     }
     return result;
 }

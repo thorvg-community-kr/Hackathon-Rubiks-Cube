@@ -280,11 +280,13 @@ Graphics는 functional style(함수형 스타일)을 유지합니다.
 ```text
 CubeState
     ↓
-BuildScene           (stickers + shadow casters)
+BuildScene           (stickers + pieces: box and backings per run of layers)
     ↓
-Shadow               (casters → ground shadow, world space)
+Shadow               (piece boxes → ground shadow, world space)
     ↓
 View Transform
+    ↓
+Order Pieces         (pieces far to near, view space)
     ↓
 Light                (Blinn-Phong: face colour + highlight, view space)
     ↓
@@ -292,7 +294,7 @@ Projection
     ↓
 Back-face Culling
     ↓
-Depth Sort
+Depth Sort           (piece, then depth)
     ↓
 ThorVG Render
 ```
@@ -305,6 +307,7 @@ auto scene =
     | BuildScene{}
     | Shadow(light, camera)
     | View(camera)
+    | OrderPieces{}
     | Light(light, camera)
     | Project(projection)
     | Cull{}

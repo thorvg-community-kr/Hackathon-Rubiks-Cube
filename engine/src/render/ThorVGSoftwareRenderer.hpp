@@ -94,7 +94,7 @@ private:
     /**
      * Composes the ground shadow out of ThorVG's own machinery.
      *
-     * One shape holding every caster's polygon, filled non-zero so overlaps
+     * One shape holding every piece's polygon, filled non-zero so overlaps
      * are inside once and no darker; a gradient fill that is the fade, in the
      * shadow colour already multiplied into the ground's; a Gaussian blur on
      * the scene round it for the edge; a clip to the region; and the cube's

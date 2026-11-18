@@ -14,6 +14,7 @@
  *
  *     auto scene = build_scene()
  *         | view(camera)
+ *         | order_pieces()
  *         | project(camera)
  *         | cull()
  *         | depth_sort()

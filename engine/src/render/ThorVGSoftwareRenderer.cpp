@@ -405,23 +405,37 @@ bool ThorVGSoftwareRenderer::rebuild_canvas(
     // stands on it.
     if (scene.shadow && !draw_shadow(*scene.shadow)) return false;
 
-    // The cubies' bodies: each slab's silhouette in the body colour, over the
-    // shadow and under the stickers. That is what shows through the seams
-    // between stickers -- the same plastic as a cut face -- and what keeps
-    // the shadow out of the cube's own outline, at the price of a few
-    // polygons rather than a mask. Drawn whether or not there is a shadow.
-    for (const auto& hull : scene.bodies) {
-        auto* shape = add_shape(*canvas_);
-        if (!shape) return false;
-        if (!append_polygon(*shape, hull)) return false;
-        if (shape->fill(graphics::kBodyColor.r, graphics::kBodyColor.g,
-                        graphics::kBodyColor.b, graphics::kBodyColor.a) !=
-            tvg::Result::Success) {
-            return false;
+    // The pieces' bodies: each one's silhouette in the body colour, over the
+    // shadow and straight under its own faces. That is what shows through the
+    // seams between a piece's stickers -- the same plastic as a cut face, and
+    // never a piece behind it -- and what keeps the shadow out of the cube's
+    // own outline, at the price of a few polygons rather than a mask. Drawn
+    // whether or not there is a shadow.
+    std::size_t next_body = 0;
+    const auto draw_bodies_before = [&](std::size_t face_index) {
+        for (; next_body < scene.bodies.size() &&
+               scene.bodies[next_body].first_face <= face_index;
+             ++next_body) {
+            // A shape per outline: the silhouette and the backings wind
+            // whichever way the screen turns them, and one shape of both
+            // could cancel where they overlap. Body over body leaves no seam.
+            for (const auto& outline : scene.bodies[next_body].outlines) {
+                auto* shape = add_shape(*canvas_);
+                if (!shape) return false;
+                if (!append_polygon(*shape, outline)) return false;
+                if (shape->fill(graphics::kBodyColor.r, graphics::kBodyColor.g,
+                                graphics::kBodyColor.b, graphics::kBodyColor.a) !=
+                    tvg::Result::Success) {
+                    return false;
+                }
+            }
         }
-    }
+        return true;
+    };
 
-    for (const auto& face : scene.faces) {
+    for (std::size_t index = 0; index < scene.faces.size(); ++index) {
+        if (!draw_bodies_before(index)) return false;
+        const auto& face = scene.faces[index];
         auto* shape = add_shape(*canvas_);
         if (!shape) return false;
 
@@ -434,6 +448,8 @@ bool ThorVGSoftwareRenderer::rebuild_canvas(
             if (!draw_highlight(face, glint)) return false;
         }
     }
+    // A body after the last face has no faces of its own left to go under.
+    if (!draw_bodies_before(scene.faces.size())) return false;
 
     // Whatever is lifted off the drawing goes over everything at rest, lowest
     // storey first, each storey with its own shadow.
@@ -541,8 +557,8 @@ bool ThorVGSoftwareRenderer::draw_shadow(
         return true;
     };
 
-    // The cast shadow is one shape: every caster's polygon as a subpath of
-    // it, filled non-zero, so where two casters overlap is inside the outline
+    // The cast shadow is one shape: every piece's polygon as a subpath of
+    // it, filled non-zero, so where two pieces overlap is inside the outline
     // once and no darker than where one is. That is the flattening, and it
     // costs no composition layer. The fade is the fill itself -- a gradient
     // from the anchor under the cube out to the far anchor -- so it costs

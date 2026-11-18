@@ -198,7 +198,7 @@ DESIGN.md 8절의 "visual state는 graphics 소유"를 그대로 따릅니다. I
 
 - **`nullopt`이면 기존 `build_cube_scene(state)`를 그대로 호출합니다.** 단일 인자 함수가 정지 상태의 canonical 구현으로 남으므로, contract v3의 byte 단위 동일성이 "회전 수학이 0°에서 항등이길 바라는 것"이 아니라 코드 경로 자체로 보장됩니다.
 - **Sticker 회전**: `layers`에 속한 cubie의 sticker quad는 world 좌표에서 cube 중심 기준으로 `angle`만큼 회전한 뒤 pipeline에 들어갑니다. 회전은 `math::Quaternion`으로 만들며 부호 변환은 이 한 곳에서만 일어납니다.
-- **Body face**: 회전 중에는 절단면이 노출됩니다. 축 방향으로 이웃한 두 layer의 mask 소속이 다르면 그 사이가 절단면이고, 절단면에 접한 cubie마다 그쪽을 향한 사각형을 방출합니다. Sticker와 같은 footprint(`kStickerScale`)로 그려 `append_sticker`를 재사용하고, 색은 배경과 여섯 sticker 색 모두와 구분되는 어두운 중립색 상수(`kBodyColor`)입니다. 회전하는 쪽의 body face는 sticker처럼 함께 회전합니다.
+- **Body face**: 회전 중에는 절단면이 노출됩니다. 축 방향으로 이웃한 두 layer의 mask 소속이 다르면 그 사이가 절단면이고, 절단면에 접한 cubie마다 그쪽을 향한 사각형을 방출합니다. Sticker와 같은 footprint(`sticker_half_extent`)로 그려 `append_sticker`를 재사용하고, 색은 배경과 여섯 sticker 색 모두와 구분되는 어두운 중립색 상수(`kBodyColor`)입니다. 회전하는 쪽의 body face는 sticker처럼 함께 회전합니다.
 - 그 결과 **회전 중에는 seam이 배경색이 아니라 body 색으로 보입니다** — 절단면이 sticker 뒤를 막기 때문입니다. 이는 의도된 것이며, seam이 배경색이라는 contract v3의 성질은 정지 상태에만 해당합니다.
 - 회전 중인 scene은 non-convex이지만, Phase 3가 바로 이 경우를 위해 depth sort를 미리 넣어 두었습니다. 평균 view-space z 정렬이라 45° 부근에서 이론적 edge case가 있지만 실제 camera 각도에서 관찰되는 결함이 있을 때만 대응합니다.
 - 전개도는 **논리 상태만** 그립니다. 회전 중에도 전개도는 commit 전 상태를 보여주고, commit 순간 새 상태로 바뀝니다. 전개도는 "큐브의 이산 상태를 한눈에"가 목적이라 연속 각도를 섞을 이유가 없고, 덕분에 e2e에서 gesture 결과 검증 도구로 그대로 쓸 수 있습니다.

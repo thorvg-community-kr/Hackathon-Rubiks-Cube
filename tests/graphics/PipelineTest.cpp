@@ -1,11 +1,14 @@
+#include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cmath>
 #include <cstdint>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "CubeSupport.hpp"
+#include "GraphicsSupport.hpp"
 #include "cube/CubeMove.hpp"
 #include "cube/Cube.hpp"
 #include "graphics/3d/AxisGizmo.hpp"
@@ -32,7 +35,12 @@ using rubiks::math::Vec2;
 using rubiks::math::Vec3;
 using rubiks::math::kPi;
 
-constexpr std::uint32_t kCanvas = 1024;
+using rubiks::test::kCanvas;
+using rubiks::test::kFrontSample;
+using rubiks::test::kRightSample;
+using rubiks::test::kSeamSamples;
+using rubiks::test::kUpSample;
+using rubiks::test::Sample;
 
 /** Square camera with a 90 degree vertical field of view at the origin. */
 Camera test_camera()
@@ -100,10 +108,10 @@ RenderScene render_cube(const Cube& state)
 }
 
 /** A point given as a fraction of the square 3D region. */
-Vec2 cube_sample(float fx, float fy)
+Vec2 cube_sample(const Sample& at)
 {
     const auto region = layout(kCanvas, kCanvas).cube;
-    return Vec2{region.x + fx * region.width, region.y + fy * region.height};
+    return Vec2{region.x + at.x * region.width, region.y + at.y * region.height};
 }
 
 }  // namespace
@@ -112,7 +120,7 @@ TEST_CASE("build_cube_scene emits only surface stickers, wound outward")
 {
     const WorldScene scene = build_cube_scene(Cube(3));
 
-    // Six faces of a 3x3 sheet. Interior and side faces are deliberately
+    // Six faces of a 3x3 grid. Interior and side faces are deliberately
     // absent, which is what makes every seam show the background.
     REQUIRE(scene.faces.size() == 54);
 
@@ -137,39 +145,106 @@ TEST_CASE("build_cube_scene emits only surface stickers, wound outward")
     }
 }
 
-TEST_CASE("cubie geometry tiles the cube without overlapping")
+TEST_CASE("every line between stickers is one gap wide, the edges too")
 {
     constexpr int kSize = 3;
-
-    // The outermost sticker plane sits just inside the nominal cube face,
-    // inset by the seam.
-    const float outer = cubie_center(kSize - 1, kSize) +
-                        sticker_half_extent(kSize);
-    REQUIRE(outer == Approx(kCubeHalfExtent * (kSize - 1 + kStickerScale) /
-                            static_cast<float>(kSize)));
-    REQUIRE(outer < kCubeHalfExtent);
 
     // Neighbouring cubie centers are one pitch apart and symmetric about 0.
     REQUIRE(cubie_center(0, kSize) == Approx(-cubie_center(kSize - 1, kSize)));
     REQUIRE(cubie_center(1, kSize) - cubie_center(0, kSize) ==
-            Approx(2.0f * kCubeHalfExtent / static_cast<float>(kSize)));
+            Approx(2.0f * cubie_half_extent(kSize)));
 
-    // Adjacent stickers do not touch, so a seam always has positive width.
-    REQUIRE(2.0f * sticker_half_extent(kSize) <
-            cubie_center(1, kSize) - cubie_center(0, kSize));
+    // Two stickers along the top edge of the front face, and the one on the
+    // top face that meets the left of them over the cube's edge.
+    const Vec3 left = sticker_center({0, kSize - 1, kSize - 1, Face::Front}, kSize);
+    const Vec3 middle = sticker_center({1, kSize - 1, kSize - 1, Face::Front}, kSize);
+    const Vec3 above = sticker_center({0, kSize - 1, kSize - 1, Face::Up}, kSize);
+    const float half = sticker_half_extent(kSize);
+    const float gap = kStickerGapShare * 2.0f * cubie_half_extent(kSize);
+
+    // A sticker lies on the face itself, not inside it, so the lighting reads
+    // it on the same plane as the cube.
+    REQUIRE(left.z == Approx(kCubeHalfExtent));
+    REQUIRE(above.y == Approx(kCubeHalfExtent));
+
+    // Between two stickers of a face: one gap.
+    REQUIRE((middle.x - half) - (left.x + half) == Approx(gap));
+    // Over the cube's edge, half on the front and half on the top: one gap.
+    const float on_front = kCubeHalfExtent - (left.y + half);
+    const float on_top = kCubeHalfExtent - (above.z + half);
+    REQUIRE(on_front + on_top == Approx(gap));
+    // On the silhouette only one face shows, and the body reaches the other
+    // half past the face: one gap.
+    REQUIRE(on_front + body_reach(kSize) == Approx(gap));
 }
 
-TEST_CASE("append_sticker places one quad on the requested face")
+TEST_CASE("the backings reach past the cube's edges and never past a cut")
+{
+    constexpr int kSize = 3;
+    const float outer = kCubeHalfExtent + body_reach(kSize);
+    const float cut = cubie_center(kSize - 1, kSize) - cubie_half_extent(kSize);
+
+    // At rest, one piece, the cube, with a backing on each face's plane a
+    // little wider than the face: every point is on the plane, out at the
+    // reach one way, and never out both ways -- the corners are cut across,
+    // so no square stands off past the cube's corner.
+    const WorldScene resting = build_cube_scene(Cube(kSize));
+    REQUIRE(resting.pieces.size() == 1);
+    REQUIRE(resting.pieces[0].backings.size() == 6);
+    for (const auto& backing : resting.pieces[0].backings) {
+        for (const auto& point : backing) {
+            int at_face = 0;
+            int at_reach = 0;
+            for (const float c : {std::abs(point.x), std::abs(point.y),
+                                  std::abs(point.z)}) {
+                if (c == Approx(kCubeHalfExtent)) ++at_face;
+                if (c == Approx(outer)) ++at_reach;
+            }
+            REQUIRE(at_reach == 1);
+            REQUIRE(at_face == 2);
+        }
+    }
+
+    // At the start of a turn of the right layer: the still piece's backings
+    // stop at the cut, the turning piece's start there, neither has one on
+    // the cut, and only the outer ends reach past the cube.
+    const ActiveRotation turn{rubiks::cube::Axis::X, rubiks::cube::layer(2),
+                              0.0f};
+    const WorldScene turning = build_cube_scene(Cube(kSize), turn);
+    REQUIRE(turning.pieces.size() == 2);
+    REQUIRE(turning.pieces[0].backings.size() == 5);
+    REQUIRE(turning.pieces[1].backings.size() == 5);
+    for (std::size_t piece = 0; piece < 2; ++piece) {
+        for (const auto& backing : turning.pieces[piece].backings) {
+            for (const auto& point : backing) {
+                if (piece == 0) {
+                    REQUIRE(point.x <= cut + 1e-5f);
+                } else {
+                    REQUIRE(point.x >= cut - 1e-5f);
+                }
+                REQUIRE(std::abs(point.x) <= outer + 1e-5f);
+            }
+        }
+    }
+}
+
+TEST_CASE("append_sticker places one quad in the plane through its centre")
 {
     WorldScene scene;
-    append_sticker(scene, Vec3{0.0f, 0.0f, 0.0f}, 0.5f, Face::Right,
+    append_sticker(scene, Vec3{0.5f, 0.1f, -0.2f}, 0.25f, Face::Right,
                    Color{7, 0, 0, 255});
 
     REQUIRE(scene.faces.size() == 1);
     REQUIRE(scene.faces[0].color == Color{7, 0, 0, 255});
+    Vec3 mean{0.0f, 0.0f, 0.0f};
     for (const auto& point : scene.faces[0].points) {
         REQUIRE(point.x == Approx(0.5f));
+        REQUIRE(std::abs(point.y - 0.1f) == Approx(0.25f));
+        REQUIRE(std::abs(point.z + 0.2f) == Approx(0.25f));
+        mean = mean + point * 0.25f;
     }
+    REQUIRE(mean.y == Approx(0.1f));
+    REQUIRE(mean.z == Approx(-0.2f));
 }
 
 TEST_CASE("project maps view space to NDC and records the depth key")
@@ -355,7 +430,7 @@ TEST_CASE("a solved cube renders 27 stickers, nine of each visible color")
 {
     const RenderScene scene = render_cube(Cube(3));
 
-    // Three faces of a 3x3 sheet; the other 27 stickers face away.
+    // Three faces of a 3x3 grid; the other 27 stickers face away.
     REQUIRE(scene.faces.size() == 27);
     REQUIRE(count_color(scene, rubiks::graphics::to_lit_color(FaceColor::White)) == 9);
     REQUIRE(count_color(scene, to_color(FaceColor::Green)) == 9);
@@ -371,9 +446,9 @@ TEST_CASE("the contract samples land on the center sticker of each face")
 
     // Fractions of the square cube region, from the contract in
     // docs/tasks/04-rubiks-cube-domain.md.
-    const auto* up = face_at(scene, cube_sample(0.50f, 0.29f));
-    const auto* front = face_at(scene, cube_sample(0.31f, 0.61f));
-    const auto* right = face_at(scene, cube_sample(0.69f, 0.61f));
+    const auto* up = face_at(scene, cube_sample(kUpSample));
+    const auto* front = face_at(scene, cube_sample(kFrontSample));
+    const auto* right = face_at(scene, cube_sample(kRightSample));
 
     REQUIRE(up != nullptr);
     REQUIRE(front != nullptr);
@@ -389,9 +464,73 @@ TEST_CASE("the seam samples fall between stickers")
 
     // Nothing is drawn in a seam, so these points show the background. This
     // only holds because cubies have no body faces.
-    REQUIRE(face_at(scene, cube_sample(0.377f, 0.645f)) == nullptr);
-    REQUIRE(face_at(scene, cube_sample(0.313f, 0.534f)) == nullptr);
-    REQUIRE(face_at(scene, cube_sample(0.564f, 0.321f)) == nullptr);
+    for (const Sample& seam : kSeamSamples) {
+        REQUIRE(face_at(scene, cube_sample(seam)) == nullptr);
+    }
+}
+
+namespace {
+
+/** A turn of the right layer half way round, seen from `eye`, ready to sort. */
+ClipScene turning_right_layer_from(const Vec3& eye)
+{
+    const auto region = layout(kCanvas, kCanvas).cube;
+    const Camera camera(eye, Vec3{0.0f, 0.0f, 0.0f}, Vec3{0.0f, 1.0f, 0.0f},
+                        kVerticalFov, region.width / region.height, kNearPlane,
+                        kFarPlane);
+    const ActiveRotation turn{rubiks::cube::Axis::X, rubiks::cube::layer(2),
+                              45.0f};
+    return build_cube_scene(Cube(3), turn)  //
+           | view(camera)                    //
+           | order_pieces()                  //
+           | project(camera)                 //
+           | cull()                          //
+           | depth_sort();
+}
+
+}  // namespace
+
+TEST_CASE("a turn draws its pieces whole, the far one first")
+{
+    // The right layer is a piece of its own and the other two layers one
+    // more. From the right the turning piece is the near one; from the left,
+    // the far one. Its stickers are the red ones: R carries only the right
+    // face's red with it, and every red sticker is on the right face.
+    const Color red = to_color(FaceColor::Red);
+    for (const bool from_right : {true, false}) {
+        const ClipScene scene = turning_right_layer_from(
+            Vec3{from_right ? 3.0f : -3.0f, 3.0f, 3.0f});
+        REQUIRE(scene.pieces.size() == 2);
+        REQUIRE_FALSE(scene.faces.empty());
+
+        // Each piece together, in the pieces' order.
+        for (std::size_t i = 1; i < scene.faces.size(); ++i) {
+            REQUIRE(scene.faces[i - 1].piece <= scene.faces[i].piece);
+        }
+        const std::size_t turning = from_right ? 1 : 0;
+        bool saw_red = false;
+        for (const auto& face : scene.faces) {
+            if (face.color == red) {
+                saw_red = true;
+                REQUIRE(face.piece == turning);
+            }
+        }
+        REQUIRE(saw_red == from_right);
+    }
+}
+
+TEST_CASE("a body goes before the first face of its own piece")
+{
+    const ClipScene clip = turning_right_layer_from(Vec3{3.0f, 3.0f, 3.0f});
+    const auto region = layout(kCanvas, kCanvas).cube;
+    const RenderScene scene = viewport(region, region)(clip);
+
+    REQUIRE(scene.bodies.size() == 2);
+    REQUIRE(scene.bodies[0].first_face == 0);
+    std::size_t still = 0;
+    while (still < clip.faces.size() && clip.faces[still].piece == 0) ++still;
+    REQUIRE(still > 0);
+    REQUIRE(scene.bodies[1].first_face == still);
 }
 
 TEST_CASE("the cube silhouette stays inside its region")
@@ -429,11 +568,11 @@ TEST_CASE("a move changes the colors the pipeline puts on screen")
 
     // Centers sit outside the turning layer, so the contract samples are
     // unchanged; only the rows above them moved.
-    REQUIRE(face_at(scene, cube_sample(0.50f, 0.29f))->color ==
+    REQUIRE(face_at(scene, cube_sample(kUpSample))->color ==
             rubiks::graphics::to_lit_color(FaceColor::White));
-    REQUIRE(face_at(scene, cube_sample(0.31f, 0.61f))->color ==
+    REQUIRE(face_at(scene, cube_sample(kFrontSample))->color ==
             to_color(FaceColor::Green));
-    REQUIRE(face_at(scene, cube_sample(0.69f, 0.61f))->color ==
+    REQUIRE(face_at(scene, cube_sample(kRightSample))->color ==
             to_color(FaceColor::Red));
 }
 
@@ -517,12 +656,15 @@ TEST_CASE("composing scenes carries every list across, in order")
     target.underlays.push_back(stroke_of(1.0f));
     target.faces.push_back(face_of(Color{255, 0, 0, 255}));
     target.strokes.push_back(stroke_of(3.0f));
-    target.bodies.push_back({Vec2{0.0f, 0.0f}, Vec2{1.0f, 0.0f}, Vec2{0.0f, 1.0f}});
+    target.bodies.push_back(
+        RenderBody{{{Vec2{0.0f, 0.0f}, Vec2{1.0f, 0.0f}, Vec2{0.0f, 1.0f}}}, 0});
 
     RenderScene source;
     source.underlays.push_back(stroke_of(2.0f));
     source.faces.push_back(face_of(Color{0, 255, 0, 255}));
     source.strokes.push_back(stroke_of(4.0f));
+    source.bodies.push_back(
+        RenderBody{{{Vec2{0.0f, 0.0f}, Vec2{2.0f, 0.0f}, Vec2{0.0f, 2.0f}}}, 0});
     RenderShadow shadow;
     shadow.opacity = 80;
     source.shadow = shadow;
@@ -544,7 +686,11 @@ TEST_CASE("composing scenes carries every list across, in order")
     REQUIRE(target.faces[1].color == Color{0, 255, 0, 255});
     REQUIRE(target.strokes.size() == 2);
     REQUIRE(target.strokes[1].width == Approx(4.0f));
-    REQUIRE(target.bodies.size() == 1);
+    // A body still goes before the face it went before: the source's first
+    // face is now the target's second.
+    REQUIRE(target.bodies.size() == 2);
+    REQUIRE(target.bodies[0].first_face == 0);
+    REQUIRE(target.bodies[1].first_face == 1);
     REQUIRE(target.shadow);
     REQUIRE(target.shadow->opacity == 80);
     REQUIRE(target.groups.size() == 2);

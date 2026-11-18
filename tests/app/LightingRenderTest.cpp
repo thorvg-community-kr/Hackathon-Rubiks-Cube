@@ -17,6 +17,7 @@
 namespace {
 
 using rubiks::graphics::Color;
+using rubiks::graphics::RenderBody;
 using rubiks::graphics::RenderFace;
 using rubiks::graphics::RenderHighlight;
 using rubiks::graphics::RenderScene;
@@ -74,7 +75,7 @@ TEST_CASE("the shadow darkens the ground on both themes and nowhere else")
     }
 }
 
-TEST_CASE("two casters overlapping are no darker than one")
+TEST_CASE("two pieces' shadows overlapping are no darker than one")
 {
     const rubiks::test::EngineLifecycle engine(16, 16);
 
@@ -185,7 +186,7 @@ TEST_CASE("the cube's body shows through its seams and keeps the shadow out")
 
     RenderScene scene;
     scene.shadow = band();
-    scene.bodies.push_back(rectangle(100.0f, 90.0f, 156.0f, 166.0f));
+    scene.bodies.push_back(RenderBody{{rectangle(100.0f, 90.0f, 156.0f, 166.0f)}, 0});
     // Two stickers inside the silhouette with a seam between them.
     scene.faces.push_back(quad(104.0f, 96.0f, 126.0f, 160.0f, Color{200, 0, 0, 255}));
     scene.faces.push_back(quad(130.0f, 96.0f, 152.0f, 160.0f, Color{0, 200, 0, 255}));
@@ -200,6 +201,29 @@ TEST_CASE("the cube's body shows through its seams and keeps the shadow out")
     REQUIRE(frame.luminance(176, 128) < 32 * 3);
     // And the stickers are their own colour, untouched by anything below.
     REQUIRE(same_rgb(frame.at(115, 128), Rgba{200, 0, 0, 255}));
+}
+
+TEST_CASE("a piece's body covers the pieces drawn before it")
+{
+    const rubiks::test::EngineLifecycle engine(16, 16);
+
+    // A far piece with one red sticker, and a near piece overlapping it on
+    // screen, its green sticker smaller than its body. The near body goes
+    // down after the red sticker and before the green one.
+    RenderScene scene;
+    scene.bodies.push_back(RenderBody{{rectangle(40.0f, 40.0f, 140.0f, 216.0f)}, 0});
+    scene.faces.push_back(quad(44.0f, 44.0f, 136.0f, 212.0f, Color{200, 0, 0, 255}));
+    scene.bodies.push_back(RenderBody{{rectangle(100.0f, 40.0f, 216.0f, 216.0f)}, 1});
+    scene.faces.push_back(quad(120.0f, 60.0f, 196.0f, 196.0f, Color{0, 200, 0, 255}));
+    const Frame frame = draw(scene, kSide);
+
+    // Between the near sticker and the near body's edge, over the far red
+    // sticker: the near piece's own plastic, not the piece behind it.
+    const auto& body = rubiks::graphics::kBodyColor;
+    REQUIRE(same_rgb(frame.at(110, 128), Rgba{body.r, body.g, body.b, 255}));
+    // The far sticker is still there where nothing near covers it.
+    REQUIRE(same_rgb(frame.at(70, 128), Rgba{200, 0, 0, 255}));
+    REQUIRE(same_rgb(frame.at(158, 128), Rgba{0, 200, 0, 255}));
 }
 
 TEST_CASE("a highlight brightens its own face and never a face in front")

@@ -99,14 +99,14 @@ TEST_CASE("without a turn the scene is the one built for a cube at rest")
     }
 }
 
-TEST_CASE("a turning layer exposes two cut sheets")
+TEST_CASE("a turning layer exposes two cut faces")
 {
     const Cube state(kSize);
     const WorldScene turning =
         build_cube_scene(state, turning_right_layer(45.0f));
 
-    // The 54 stickers, plus the two faces of the cut: one sheet on the layer
-    // that moves and one on the layer it left behind.
+    // The 54 stickers, plus the two sides of the cut: one cut face on the
+    // layer that moves and one on the layer it left behind.
     REQUIRE(turning.faces.size() == 54 + 2 * kSize * kSize);
     REQUIRE(count_body_faces(turning) == 2 * kSize * kSize);
     REQUIRE(build_cube_scene(state).faces.size() == 54);
@@ -134,8 +134,8 @@ TEST_CASE("a wide turn cuts only where it meets a still layer")
             2 * kSize * kSize);
 }
 
-/** Body caps depend on moving/still interfaces, not stored internal cubies. */
-TEST_CASE("cut sheets cover every layer interface on each axis")
+/** Cut faces depend on moving/still interfaces, not stored internal cubies. */
+TEST_CASE("cut faces cover every layer interface on each axis")
 {
     for (const int size : {2, 4, 7}) {
         const Cube state(size);

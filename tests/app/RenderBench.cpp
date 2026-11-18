@@ -155,6 +155,7 @@ int main(int argc, char** argv)
     const RenderScene scene = build_cube_scene(rubiks::cube::Cube(size), turn)  //
                               | shadow(default_lighting(), camera)                        //
                               | view(camera)                                         //
+                              | order_pieces()                                       //
                               | light(default_lighting(), camera)                         //
                               | project(camera)                                      //
                               | cull()                                               //
@@ -164,7 +165,7 @@ int main(int argc, char** argv)
     for (const auto& face : scene.faces) {
         glints += face.highlights.size();
     }
-    std::printf("faces drawn %zu, with a highlight %zu (%.1f%%), shadow casters %zu\n",
+    std::printf("faces drawn %zu, with a highlight %zu (%.1f%%), shadow polygons %zu\n",
                 scene.faces.size(), glints,
                 scene.faces.empty() ? 0.0 : 100.0 * glints / scene.faces.size(),
                 scene.shadow ? scene.shadow->polygons.size() : 0);

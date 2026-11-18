@@ -38,6 +38,7 @@ RenderScene compose(const FrameInputs& frame)
                                  drawing.palette)  //
                 | shadow(lamp, camera)             //
                 | view(camera)                     //
+                | order_pieces()                   //
                 | light(lamp, camera)              //
                 | project(camera)                  //
                 | cull()                           //

@@ -438,7 +438,7 @@ LightPass light(const Lighting& lighting, const Camera& camera) noexcept
 WorldScene ShadowPass::operator()(WorldScene scene) const
 {
     scene.shadow.reset();
-    if (!key || scene.casters.empty()) return scene;
+    if (!key || scene.pieces.empty()) return scene;
     const math::Vec3& light_pos = key->position;
 
     // Seen from underneath, a floating object's ground shadow is not there;
@@ -458,17 +458,17 @@ WorldScene ShadowPass::operator()(WorldScene scene) const
     math::Vec3 centre{0.0f, 0.0f, 0.0f};
     std::size_t corner_count = 0;
 
-    for (const auto& caster : scene.casters) {
+    for (const auto& piece : scene.pieces) {
         // A corner level with the light or above it has no shadow on the
         // ground; the box goes rather than a torn part of it.
         const bool below_light = std::all_of(
-            caster.corners.begin(), caster.corners.end(),
+            piece.box.begin(), piece.box.end(),
             [&](const math::Vec3& corner) { return corner.y < light_pos.y; });
         if (!below_light) continue;
 
         std::vector<math::Vec2> footprints;
-        footprints.reserve(caster.corners.size());
-        for (const auto& corner : caster.corners) {
+        footprints.reserve(piece.box.size());
+        for (const auto& corner : piece.box) {
             const math::Vec3 on_ground = cast(corner);
             footprints.push_back(math::Vec2{on_ground.x, on_ground.z});
             centre += corner;

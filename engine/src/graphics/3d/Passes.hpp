@@ -20,9 +20,9 @@
 namespace rubiks::graphics {
 
 /**
- * Casts the casters onto the ground from the light, in world space.
+ * Casts the pieces' boxes onto the ground from the light, in world space.
  *
- * Fills `WorldScene::shadow` with one convex polygon per caster, the fade
+ * Fills `WorldScene::shadow` with one convex polygon per piece, the fade
  * anchors and an opacity already thinned by how close the eye is to the
  * ground. Leaves it empty when there is nothing to cast, when
  * the light is not above the cube, or when the eye is at or below the ground.
@@ -50,6 +50,23 @@ struct ViewPass {
 };
 
 [[nodiscard]] ViewPass view(const Camera& camera) noexcept;
+
+/**
+ * Puts the pieces in the order they are drawn, far first, in view space.
+ *
+ * During a turn the cube is two or three boxes and not one convex solid, so
+ * sorting the faces by depth alone lets a still piece's faces be drawn over a
+ * turning piece's body and show between its stickers. The pieces are boxes
+ * cut from one stack, so two of them are always parted by a face plane of one
+ * of them, and of the two the one on the eye's side of that plane is drawn
+ * after the other. The pieces are put in that order and every face's
+ * `piece` follows its own; the depth sort then keeps each piece together.
+ */
+struct OrderPass {
+    [[nodiscard]] ViewScene operator()(ViewScene scene) const;
+};
+
+[[nodiscard]] OrderPass order_pieces() noexcept;
 
 /**
  * Blinn-Phong on every face, in view space.
@@ -100,7 +117,7 @@ struct ProjectPass {
 [[nodiscard]] ProjectPass project(const Camera& camera) noexcept;
 
 /**
- * Drops back faces.
+ * Drops back faces, and the backings turned away with them.
  *
  * Judged in NDC, where +Y is still up and a counter-clockwise front face has
  * a positive signed area; doing it after the viewport flip would invert the
@@ -113,12 +130,13 @@ struct CullPass {
 [[nodiscard]] CullPass cull() noexcept;
 
 /**
- * Orders faces back to front by mean view-space z.
+ * Orders faces piece by piece in the pieces' order, and back to front by mean
+ * view-space z within a piece.
  *
- * A single convex cube needs only culling, but a layer mid-rotation is not
- * convex, so the ordering is established and tested now. The sort is stable,
- * so faces at equal depth keep their input order and the output is
- * deterministic.
+ * A piece is a convex box, so its own faces need only culling; the order of
+ * the pieces is what a layer mid-rotation needs, and `order_pieces` has set
+ * it. The sort is stable, so faces at equal depth keep their input order and
+ * the output is deterministic.
  */
 struct DepthSortPass {
     [[nodiscard]] ClipScene operator()(ClipScene scene) const;
@@ -134,9 +152,9 @@ struct DepthSortPass {
  * also what frees the camera aspect from the canvas aspect.
  *
  * The shadow gets the stage as its clip and a blur width sized to the
- * rectangle, and its casters become the convex silhouettes the renderer hides
- * it behind. This is the one pass that knows the rectangle, so it is the one
- * that writes them.
+ * rectangle, and every piece becomes a body: its box's convex silhouette,
+ * which the renderer also hides the shadow behind, and its backings. This is
+ * the one pass that knows the rectangle, so it is the one that writes them.
  */
 struct ViewportPass {
     Rect rect;

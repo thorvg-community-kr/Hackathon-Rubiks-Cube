@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 
 #include "CubeSupport.hpp"
@@ -50,5 +51,33 @@ inline constexpr std::uint32_t kCanvas = 1024;
     return graphics::camera_into(graphics::home_orbit(),
                                  cube_rect(width, height));
 }
+
+/** A point as fractions of a region, measured from its top left. */
+struct Sample {
+    float x;
+    float y;
+};
+
+// Where the home viewpoint shows what on a solved 3x3x3, as fractions of the
+// square 3D region, which keeps them valid at any canvas aspect. Written here
+// by hand from docs/tasks/04-rubiks-cube-domain.md rather than read from the
+// engine, so a change to the camera, the layout or the stickers' gap has to
+// move them deliberately -- and web/tests/e2e/sceneContract.ts with them.
+
+/** The middles of the three visible faces' centre stickers. */
+inline constexpr Sample kUpSample{0.50f, 0.29f};
+inline constexpr Sample kFrontSample{0.31f, 0.61f};
+inline constexpr Sample kRightSample{0.69f, 0.61f};
+
+/**
+ * The middles of three gaps between stickers, projected from the home
+ * viewpoint: the edges between cubies, x or y = 1/3 on the cube's face. The
+ * gaps are kStickerGapShare of a cubie wide.
+ */
+inline constexpr std::array<Sample, 3> kSeamSamples{{
+    {0.371f, 0.648f},  // +Z, between the center and right stickers
+    {0.307f, 0.537f},  // +Z, between the center and top stickers
+    {0.564f, 0.314f},  // +Y, between the center and right stickers
+}};
 
 }  // namespace rubiks::test

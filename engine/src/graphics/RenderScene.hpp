@@ -167,13 +167,29 @@ struct RenderStroke {
 };
 
 /**
- * Color of the cubie body: the cut surfaces exposed while a layer is turning,
- * and the slab silhouettes the renderer paints under the stickers so that the
- * seams between them show plastic rather than whatever is behind the cube.
+ * Color of the cubie body: the cut faces exposed while a layer is turning,
+ * and the pieces' bodies the renderer paints under their stickers so that the
+ * gaps between them show plastic rather than whatever is behind the cube.
  * Kept clearly apart from the background and from all six sticker colors so
  * a test can tell them apart.
  */
 inline constexpr Color kBodyColor{70, 74, 82, 255};
+
+/**
+ * One piece's body, filled in the body colour: its box's convex silhouette,
+ * then the backings under its outer faces that are turned towards the eye.
+ *
+ * Drawn straight before the face at `first_face`, the first of the piece's
+ * own, so the piece's faces lie on it and every piece drawn later covers it.
+ * Between its stickers a piece shows its own body, then, and not the faces of
+ * a piece behind it. Bodies are in the order they are drawn, so `first_face`
+ * never decreases along them; a body with no faces of its own has the index
+ * of the next piece's first face.
+ */
+struct RenderBody {
+    std::vector<std::vector<math::Vec2>> outlines;
+    std::size_t first_face = 0;
+};
 
 /**
  * Final output of the graphics pipeline and the only input a renderer takes.
@@ -196,11 +212,11 @@ struct RenderScene {
     /** Drawn after the underlays and before the faces: it lies on the ground. */
     std::optional<RenderShadow> shadow;
     /**
-     * The cubies' bodies: each slab's convex screen silhouette, drawn after the
-     * shadow and before the faces in the body colour. It is what shows in the
-     * seams between stickers, and it hides the shadow behind the cube.
+     * The pieces' bodies, each drawn among the faces straight before its own.
+     * It is what shows in the seams between stickers, and it hides the shadow
+     * behind the cube.
      */
-    std::vector<std::vector<math::Vec2>> bodies;
+    std::vector<RenderBody> bodies;
     std::vector<RenderFace> faces;
     /**
      * Drawn after the faces and before the strokes: pieces lifted off the
@@ -216,6 +232,9 @@ struct RenderScene {
 /** Moves everything in `source` onto the end of `target`. */
 inline void append_scene(RenderScene& target, RenderScene&& source)
 {
+    // A body names the face it goes before, so it moves with the faces.
+    for (auto& body : source.bodies) body.first_face += target.faces.size();
+
     target.underlays.insert(target.underlays.end(),
                             std::make_move_iterator(source.underlays.begin()),
                             std::make_move_iterator(source.underlays.end()));

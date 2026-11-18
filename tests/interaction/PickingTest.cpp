@@ -1,6 +1,5 @@
 #include "interaction/Picking.hpp"
 
-#include <array>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -21,6 +20,11 @@ using rubiks::math::Vec3;
 using rubiks::test::cube_camera;
 using rubiks::test::cube_rect;
 using rubiks::test::kCanvas;
+using rubiks::test::kFrontSample;
+using rubiks::test::kRightSample;
+using rubiks::test::kSeamSamples;
+using rubiks::test::kUpSample;
+using rubiks::test::Sample;
 
 constexpr int kSize = 3;
 
@@ -38,9 +42,9 @@ float sample_y(float fraction)
 }
 
 /** Picks at a fraction of the viewport, or nothing when the ray misses. */
-std::optional<Pick> pick_at(float fx, float fy)
+std::optional<Pick> pick_at(const Sample& at)
 {
-    const auto ray = pointer_ray(sample_x(fx), sample_y(fy), cube_camera(),
+    const auto ray = pointer_ray(sample_x(at.x), sample_y(at.y), cube_camera(),
                                  cube_rect());
     if (!ray) return std::nullopt;
     return pick_cube(*ray, kSize);
@@ -58,21 +62,21 @@ TEST_CASE("the contract samples pick the center sticker of each visible face")
 {
     // These are the three points the rendered scene contract reads as white,
     // green and red, so picking has to agree with what is drawn there.
-    const auto up = pick_at(0.50f, 0.29f);
+    const auto up = pick_at(kUpSample);
     REQUIRE(up);
     REQUIRE(up->sticker.face == Face::Up);
     REQUIRE(up->sticker.x == 1);
     REQUIRE(up->sticker.y == 2);
     REQUIRE(up->sticker.z == 1);
 
-    const auto front = pick_at(0.31f, 0.61f);
+    const auto front = pick_at(kFrontSample);
     REQUIRE(front);
     REQUIRE(front->sticker.face == Face::Front);
     REQUIRE(front->sticker.x == 1);
     REQUIRE(front->sticker.y == 1);
     REQUIRE(front->sticker.z == 2);
 
-    const auto right = pick_at(0.69f, 0.61f);
+    const auto right = pick_at(kRightSample);
     REQUIRE(right);
     REQUIRE(right->sticker.face == Face::Right);
     REQUIRE(right->sticker.x == 2);
@@ -82,23 +86,20 @@ TEST_CASE("the contract samples pick the center sticker of each visible face")
 
 TEST_CASE("a seam is grabbed rather than missed")
 {
-    // Seam samples show the background, but nothing is cut out of the cube:
-    // a press between two stickers still holds the cube.
-    constexpr std::array<std::array<float, 2>, 3> kSeams{
-        {{0.377f, 0.645f}, {0.313f, 0.534f}, {0.564f, 0.321f}}};
-
-    for (const auto& seam : kSeams) {
-        REQUIRE(pick_at(seam[0], seam[1]));
+    // A seam shows the body rather than a sticker, but nothing is cut out
+    // of the cube: a press between two stickers still holds the cube.
+    for (const Sample& seam : kSeamSamples) {
+        REQUIRE(pick_at(seam));
     }
 }
 
 TEST_CASE("pressing beside the cube misses")
 {
     // The corners of the square viewport are outside the silhouette.
-    REQUIRE_FALSE(pick_at(0.02f, 0.02f));
-    REQUIRE_FALSE(pick_at(0.98f, 0.02f));
-    REQUIRE_FALSE(pick_at(0.02f, 0.98f));
-    REQUIRE_FALSE(pick_at(0.98f, 0.98f));
+    REQUIRE_FALSE(pick_at({0.02f, 0.02f}));
+    REQUIRE_FALSE(pick_at({0.98f, 0.02f}));
+    REQUIRE_FALSE(pick_at({0.02f, 0.98f}));
+    REQUIRE_FALSE(pick_at({0.98f, 0.98f}));
 }
 
 TEST_CASE("points outside the viewport produce no ray")

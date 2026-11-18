@@ -44,7 +44,7 @@ inline constexpr Rgba kOrange{255, 88, 0, 255};     // -X left
 // The planes turned away from the light are at the ambient floor: the kicker
 // lights nothing, it only glints.
 inline constexpr unsigned kLitUp = 275;     // +Y, the plane nearest the key light
-inline constexpr unsigned kLitFront = 230;  // +Z
+inline constexpr unsigned kLitFront = 229;  // +Z
 inline constexpr unsigned kLitRight = 211;  // +X
 inline constexpr unsigned kLitAway = 191;   // -X and -Z: the ambient floor
 // The cut faces a turn opens lie one layer in, so their planes are their own:
@@ -98,18 +98,9 @@ constexpr Rgba saturated(const Rgba& color)
  */
 inline constexpr Rgba kBody{70, 74, 82, 255};
 
-/** Fraction of a region, measured from its top left. */
-struct Sample {
-    float x;
-    float y;
-};
-
-// Centers of the three visible face centers, unchanged from contract v2. They
-// are fractions of the 3D region rather than of the canvas, which is what
-// makes them valid at any aspect ratio now that the region is always square.
-inline constexpr Sample kUpSample{0.50f, 0.29f};
-inline constexpr Sample kFrontSample{0.31f, 0.61f};
-inline constexpr Sample kRightSample{0.69f, 0.61f};
+// Where the three visible faces and the seams are sampled is shared with the
+// graphics and picking tests: kUpSample, kFrontSample, kRightSample and
+// kSeamSamples in GraphicsSupport.hpp.
 
 /** Requires a pixel to be exactly a colour. */
 inline void require_pixel(const std::uint8_t* pixel, const Rgba& color)

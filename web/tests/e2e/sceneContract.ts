@@ -26,7 +26,7 @@ export const BODY = [70, 74, 82, 255];
 // 255, worked out by hand in docs/tasks/04-rubiks-cube-domain.md (contract
 // v4). The three planes turned away from the light sit at the ambient floor.
 export const LIT_UP = 275; // +Y (white clamps to 255)
-export const LIT_FRONT = 230; // +Z
+export const LIT_FRONT = 229; // +Z
 export const LIT_RIGHT = 211; // +X
 export const LIT_AWAY = 191; // -Y, -X, -Z: the ambient floor
 
@@ -147,9 +147,9 @@ export const FRONT_RIGHT_COLUMN = [0.433, 0.694] as const;
 // comfortably wider than the anti-aliased edges around it, which it is from
 // a region this many pixels across.
 export const SEAM_SAMPLES = [
-  [0.377, 0.645],
-  [0.313, 0.534],
-  [0.564, 0.321],
+  [0.371, 0.648],
+  [0.307, 0.537],
+  [0.564, 0.314],
 ] as const;
 export const SEAM_MIN_REGION = 594;
 
