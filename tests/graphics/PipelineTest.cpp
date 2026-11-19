@@ -147,14 +147,17 @@ TEST_CASE("build_cube_scene emits only surface stickers, wound outward")
     }
 }
 
-TEST_CASE("every line between stickers is one gap wide, the edges too")
+TEST_CASE("every cubie face has its border inside it, and the cubies touch")
 {
     constexpr int kSize = 3;
 
-    // Neighbouring cubie centers are one pitch apart and symmetric about 0.
+    // Neighbouring cubie centers are one cubie apart and symmetric about 0:
+    // the cubies sit edge to edge, and the outer ones reach the cube's face.
     REQUIRE(cubie_center(0, kSize) == Approx(-cubie_center(kSize - 1, kSize)));
     REQUIRE(cubie_center(1, kSize) - cubie_center(0, kSize) ==
             Approx(2.0f * cubie_half_extent(kSize)));
+    REQUIRE(cubie_center(kSize - 1, kSize) + cubie_half_extent(kSize) ==
+            Approx(kCubeHalfExtent));
 
     // Two stickers along the top edge of the front face, and the one on the
     // top face that meets the left of them over the cube's edge.
@@ -162,79 +165,35 @@ TEST_CASE("every line between stickers is one gap wide, the edges too")
     const Vec3 middle = sticker_center({1, kSize - 1, kSize - 1, Face::Front}, kSize);
     const Vec3 above = sticker_center({0, kSize - 1, kSize - 1, Face::Up}, kSize);
     const float half = sticker_half_extent(kSize);
-    const float gap = kStickerGapShare * 2.0f * cubie_half_extent(kSize);
+    const float border = kCubieBorderShare * 2.0f * cubie_half_extent(kSize);
+    REQUIRE(border > 0.0f);
 
     // A sticker lies on the face itself, not inside it, so the lighting reads
     // it on the same plane as the cube.
     REQUIRE(left.z == Approx(kCubeHalfExtent));
     REQUIRE(above.y == Approx(kCubeHalfExtent));
 
-    // Between two stickers of a face: one gap.
-    REQUIRE((middle.x - half) - (left.x + half) == Approx(gap));
-    // Over the cube's edge, half on the front and half on the top: one gap.
+    // Every sticker is its cubie's face less the border, all round: on the
+    // silhouette the line is one border, inside the cube's outline.
     const float on_front = kCubeHalfExtent - (left.y + half);
     const float on_top = kCubeHalfExtent - (above.z + half);
-    REQUIRE(on_front + on_top == Approx(gap));
-    // On the silhouette only one face shows, and the body reaches the other
-    // half past the face: one gap.
-    REQUIRE(on_front + body_reach(kSize) == Approx(gap));
+    REQUIRE(on_front == Approx(border));
+    REQUIRE(on_top == Approx(border));
+    REQUIRE((left.x - half) - (-kCubeHalfExtent) == Approx(border));
+    // Between two cubies, and over an edge where two faces meet: two borders.
+    REQUIRE((middle.x - half) - (left.x + half) == Approx(2.0f * border));
+    REQUIRE(on_front + on_top == Approx(2.0f * border));
 }
 
-TEST_CASE("the backings reach past the cube's edges and never past a cut")
+TEST_CASE("the body is the cube's own box, never past it")
 {
-    constexpr int kSize = 3;
-    const float outer = kCubeHalfExtent + body_reach(kSize);
-    const float cut = cubie_center(kSize - 1, kSize) - cubie_half_extent(kSize);
-
-    // At rest, one piece, the cube, with a backing on each face's plane a
-    // little wider than the face: every point is on the plane, out at the
-    // reach one way, and never out both ways -- the corners are cut across,
-    // so no square stands off past the cube's corner.
-    const WorldScene resting = build_cube_scene(Cube(kSize));
+    // At rest one piece, the cube; nothing of the body stands outside it.
+    const WorldScene resting = build_cube_scene(Cube(3));
     REQUIRE(resting.pieces.size() == 1);
-    REQUIRE(resting.pieces[0].backings.size() == 6);
-    for (const auto& backing : resting.pieces[0].backings) {
-        for (const auto& point : backing) {
-            int at_face = 0;
-            int at_reach = 0;
-            for (const float c : {std::abs(point.x), std::abs(point.y),
-                                  std::abs(point.z)}) {
-                if (c == Approx(kCubeHalfExtent)) ++at_face;
-                if (c == Approx(outer)) ++at_reach;
-            }
-            REQUIRE(at_reach == 1);
-            REQUIRE(at_face == 2);
-        }
-    }
-
-    // At the start of a turn of the right layer: the still piece's backings
-    // stop at the cut and the turning piece's start there, so neither reaches
-    // into the other; the cut itself has none; and where an outer face's
-    // backing meets the cut it tapers into the box, so nothing of it stands
-    // past the cut face's edge as a tab.
-    const ActiveRotation turn{rubiks::cube::Axis::X, rubiks::cube::layer(2),
-                              0.0f};
-    const WorldScene turning = build_cube_scene(Cube(kSize), turn);
-    REQUIRE(turning.pieces.size() == 2);
-    for (std::size_t piece = 0; piece < 2; ++piece) {
-        REQUIRE(turning.pieces[piece].backings.size() == 5);
-        for (const auto& backing : turning.pieces[piece].backings) {
-            bool all_on_cut = true;
-            for (const auto& point : backing) {
-                if (piece == 0) {
-                    REQUIRE(point.x <= cut + 1e-5f);
-                } else {
-                    REQUIRE(point.x >= cut - 1e-5f);
-                }
-                REQUIRE(std::abs(point.x) <= outer + 1e-5f);
-                all_on_cut = all_on_cut && point.x == Approx(cut);
-                if (point.x == Approx(cut)) {
-                    REQUIRE(std::abs(point.y) <= kCubeHalfExtent + 1e-5f);
-                    REQUIRE(std::abs(point.z) <= kCubeHalfExtent + 1e-5f);
-                }
-            }
-            REQUIRE_FALSE(all_on_cut);
-        }
+    for (const auto& corner : resting.pieces[0].box) {
+        REQUIRE(std::abs(corner.x) == Approx(kCubeHalfExtent));
+        REQUIRE(std::abs(corner.y) == Approx(kCubeHalfExtent));
+        REQUIRE(std::abs(corner.z) == Approx(kCubeHalfExtent));
     }
 }
 
@@ -770,14 +729,14 @@ TEST_CASE("composing scenes carries every list across, in order")
     target.faces.push_back(face_of(Color{255, 0, 0, 255}));
     target.strokes.push_back(stroke_of(3.0f));
     target.bodies.push_back(
-        RenderBody{{{Vec2{0.0f, 0.0f}, Vec2{1.0f, 0.0f}, Vec2{0.0f, 1.0f}}}, 0});
+        RenderBody{{Vec2{0.0f, 0.0f}, Vec2{1.0f, 0.0f}, Vec2{0.0f, 1.0f}}, 0});
 
     RenderScene source;
     source.underlays.push_back(stroke_of(2.0f));
     source.faces.push_back(face_of(Color{0, 255, 0, 255}));
     source.strokes.push_back(stroke_of(4.0f));
     source.bodies.push_back(
-        RenderBody{{{Vec2{0.0f, 0.0f}, Vec2{2.0f, 0.0f}, Vec2{0.0f, 2.0f}}}, 0});
+        RenderBody{{Vec2{0.0f, 0.0f}, Vec2{2.0f, 0.0f}, Vec2{0.0f, 2.0f}}, 0});
     RenderShadow shadow;
     shadow.opacity = 80;
     source.shadow = shadow;

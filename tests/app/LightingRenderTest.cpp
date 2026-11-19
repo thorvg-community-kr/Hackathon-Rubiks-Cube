@@ -186,7 +186,7 @@ TEST_CASE("the cube's body shows through its seams and keeps the shadow out")
 
     RenderScene scene;
     scene.shadow = band();
-    scene.bodies.push_back(RenderBody{{rectangle(100.0f, 90.0f, 156.0f, 166.0f)}, 0});
+    scene.bodies.push_back(RenderBody{rectangle(100.0f, 90.0f, 156.0f, 166.0f), 0});
     // Two stickers inside the silhouette with a seam between them.
     scene.faces.push_back(quad(104.0f, 96.0f, 126.0f, 160.0f, Color{200, 0, 0, 255}));
     scene.faces.push_back(quad(130.0f, 96.0f, 152.0f, 160.0f, Color{0, 200, 0, 255}));
@@ -211,9 +211,9 @@ TEST_CASE("a piece's body covers the pieces drawn before it")
     // screen, its green sticker smaller than its body. The near body goes
     // down after the red sticker and before the green one.
     RenderScene scene;
-    scene.bodies.push_back(RenderBody{{rectangle(40.0f, 40.0f, 140.0f, 216.0f)}, 0});
+    scene.bodies.push_back(RenderBody{rectangle(40.0f, 40.0f, 140.0f, 216.0f), 0});
     scene.faces.push_back(quad(44.0f, 44.0f, 136.0f, 212.0f, Color{200, 0, 0, 255}));
-    scene.bodies.push_back(RenderBody{{rectangle(100.0f, 40.0f, 216.0f, 216.0f)}, 1});
+    scene.bodies.push_back(RenderBody{rectangle(100.0f, 40.0f, 216.0f, 216.0f), 1});
     scene.faces.push_back(quad(120.0f, 60.0f, 196.0f, 196.0f, Color{0, 200, 0, 255}));
     const Frame frame = draw(scene, kSide);
 

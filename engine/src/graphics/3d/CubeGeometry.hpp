@@ -18,33 +18,23 @@ namespace rubiks::graphics {
 inline constexpr float kCubeHalfExtent = 1.0f;
 
 /**
- * The gap between two stickers, as a share of one cubie's edge.
+ * The border round every cubie face, inside it, as a share of a cubie's edge.
  *
- * Every sticker sits in the middle of its cubie's face, half a gap in from
- * each edge, and the body shows through the gaps. Between two stickers of a
- * face the two halves make one gap; where two faces meet at the cube's edge
- * the half on each face make one again; and on the silhouette, where only one
- * face is seen, the face's backing reaches another half gap past the edge
- * in the face's own plane to make the line the same width there too. All of
- * it is on the faces, so it foreshortens with them: a face seen edge on keeps
- * its colours, and no edge of the silhouette is heavier than another.
+ * The cubies sit edge to edge with nothing between them, and each face's
+ * sticker stops this far in from the face's edges, where the body shows.
+ * Between two cubies the two borders make one line; where two faces of the
+ * cube meet the two make one again; on the silhouette, where one face is
+ * seen, the line is that face's border alone. Everything is inside the
+ * cube's own outline and on its faces, so it foreshortens with them, and
+ * nothing appears or goes as a face turns away.
  */
-inline constexpr float kStickerGapShare = 0.06f;
+inline constexpr float kCubieBorderShare = 0.03f;
 
 /** Half the edge of one cubie: the cut faces a turn exposes are this size. */
 [[nodiscard]] float cubie_half_extent(int size) noexcept;
 
-/** Half the edge of one sticker: its cubie's, less half a gap. */
+/** Half the edge of one sticker: its cubie's, less the border. */
 [[nodiscard]] float sticker_half_extent(int size) noexcept;
-
-/**
- * How far a backing reaches past the cube's edges, in its face's plane: half a
- * gap.
- *
- * Only past the cube's own edges: where a turn cuts the cube, a piece's
- * backings stop at the cut, so that two pieces never overlap.
- */
-[[nodiscard]] float body_reach(int size) noexcept;
 
 /** The centre of one surface sticker: the middle of its cubie's outward face. */
 [[nodiscard]] math::Vec3 sticker_center(const cube::SurfaceSticker& sticker,
@@ -87,8 +77,8 @@ void append_sticker(WorldScene& scene, const math::Vec3& center,
  * visible exactly when that cubie sits in the outermost layer along the
  * face's axis. At N = 3 that is 54 quads, of which the fixed camera keeps 27.
  *
- * Beside them goes one piece, the whole cube: its box for the shadow pass to
- * project and for the body, and a backing under each of its six faces.
+ * Beside them goes one piece, the whole cube: its box, for the shadow pass to
+ * project and to be drawn as the body under the stickers.
  */
 [[nodiscard]] WorldScene build_cube_scene(cube::CubeView state,
                                           Palette palette = Palette::Classic);

@@ -400,7 +400,7 @@ TEST_CASE("the shadow's points travel through the passes like face corners")
 
     // The caster arrives as a body: a flat box's silhouette is its face.
     REQUIRE(result.bodies.size() == 1);
-    REQUIRE(result.bodies[0].outlines.front().size() == 4);
+    REQUIRE(result.bodies[0].outline.size() == 4);
 
     SECTION("the body is drawn whether or not there is a shadow")
     {
@@ -944,10 +944,8 @@ TEST_CASE("the whole chain puts the shadow below the cube inside its region")
     REQUIRE(scene.faces.size() == 27);
     REQUIRE(scene.shadow.has_value());
     REQUIRE(scene.bodies.size() == 1);
-    // A box seen corner-on is a hexagon, and three of its faces' sheets face
-    // the eye.
-    REQUIRE(scene.bodies[0].outlines.front().size() == 6);
-    REQUIRE(scene.bodies[0].outlines.size() == 1 + 3);
+    // A box seen corner-on is a hexagon.
+    REQUIRE(scene.bodies[0].outline.size() == 6);
 
     // The anchor under the cube is lower on screen than the cube's middle,
     // and the far anchor is higher up: the shadow leans away behind it.

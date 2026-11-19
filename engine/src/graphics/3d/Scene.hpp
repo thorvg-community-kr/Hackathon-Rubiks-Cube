@@ -18,9 +18,6 @@
  */
 namespace rubiks::graphics {
 
-/** How many points a backing has; see PieceOf::backings. */
-inline constexpr std::size_t kBackingPoints = 8;
-
 /**
  * One rigid piece of the cube, in any space: the whole cube at rest, one run
  * of layers during a turn.
@@ -29,9 +26,9 @@ inline constexpr std::size_t kBackingPoints = 8;
  * gaps between them, so their shadow would be a grid, and the shadow of a
  * convex box is the convex hull of the shadows of its eight corners.
  *
- * The box and the backings are also the piece's body, drawn in the body
- * colour straight before the piece's own faces: what shows in the gaps
- * between its stickers is its own body, and never a piece behind it.
+ * The box is also the piece's body, its silhouette drawn in the body colour
+ * straight before the piece's own faces: what shows in the borders between
+ * its stickers is its own body, and never a piece behind it.
  */
 template <typename Point>
 struct PieceOf {
@@ -41,19 +38,6 @@ struct PieceOf {
      * the four corners sharing a bit's value are one face of the box.
      */
     std::array<Point, 8> box{};
-    /**
-     * A body-coloured backing under each outer face of the box, in the face's
-     * plane: the face reaching `body_reach()` past the cube's edges, stopping
-     * at a cut. It shows in the half gap round the outermost stickers, and
-     * past the edge on the silhouette, where only that face is seen -- in the
-     * face's plane, so it foreshortens with the face the way the gaps between
-     * its stickers do. Wound like a face, and culled like one.
-     *
-     * Eight points: the rectangle with every corner cut across, so it stays
-     * inside a 45-degree bevel round the box's edges -- no square spike past
-     * the cube's corners, and no tab past a cut face turned away.
-     */
-    std::vector<std::array<Point, kBackingPoints>> backings;
 };
 
 /**

@@ -61,26 +61,6 @@ constexpr float kH = 1.0f;
     return position;
 }
 
-/**
- * A rectangle facing `face`, centred on `center`, reaching `half` along each
- * axis in its plane; the component along the face's own axis is unused.
- */
-[[nodiscard]] std::array<Vec3, 4> rectangle_on(Face face, const Vec3& center,
-                                               const Vec3& half) noexcept
-{
-    const auto offsets = corners_of(face);
-    // The corners are a unit cube's face, one unit out along the normal; that
-    // unit is taken off, so the rectangle lies in the plane through `center`.
-    const Vec3 normal = face_normal(face);
-    std::array<Vec3, 4> points{};
-    for (std::size_t i = 0; i < offsets.size(); ++i) {
-        const Vec3 along = offsets[i] - normal;
-        points[i] = Vec3{center.x + along.x * half.x, center.y + along.y * half.y,
-                         center.z + along.z * half.z};
-    }
-    return points;
-}
-
 /** One coordinate of a point, by axis. */
 [[nodiscard]] float& coordinate(Vec3& point, Axis axis) noexcept
 {
@@ -93,32 +73,6 @@ constexpr float kH = 1.0f;
             break;
     }
     return point.z;
-}
-
-/**
- * A backing's rectangle with every corner cut across, `reach` back along each
- * of its two edges.
- *
- * Every corner of a backing stands off its piece's box, one way or both, and
- * cut across like that the backing stays inside a 45-degree bevel round the
- * box's edges. Where two reaches meet, past the cube's corner, a whole corner
- * would be a square spike; where one reach runs into a cut, it would be a
- * tab standing past the cut face.
- */
-[[nodiscard]] std::array<Vec3, kBackingPoints> cut_corners(
-    const std::array<Vec3, 4>& rectangle, float reach) noexcept
-{
-    std::array<Vec3, kBackingPoints> points{};
-    for (std::size_t i = 0; i < rectangle.size(); ++i) {
-        const Vec3& corner = rectangle[i];
-        const auto toward = [&](const Vec3& other) {
-            const Vec3 edge = other - corner;
-            return corner + edge * (reach / math::length(edge));
-        };
-        points[2 * i] = toward(rectangle[(i + rectangle.size() - 1) % rectangle.size()]);
-        points[2 * i + 1] = toward(rectangle[(i + 1) % rectangle.size()]);
-    }
-    return points;
 }
 
 /** The bit of a box corner's index that says which end of `axis` it is at. */
@@ -142,12 +96,6 @@ constexpr float kH = 1.0f;
  * Its box spans the run along the axis and the whole cube across it. At rest
  * that is the cube itself; during a turn the union of the runs is the cube at
  * that angle, so the union of their shadows is its shadow, whatever N is.
- *
- * A backing goes under each of its outer faces, in the face's plane,
- * reaching `body_reach()` past the cube's edges and stopping at a cut, so
- * that two pieces never overlap. A cut has no backing: the cut face is body
- * already, lit as a face, and an unlit band round it would read as a frame
- * lighter or darker than the face it frames.
  */
 std::size_t append_piece(WorldScene& scene, Axis axis, int first, int last,
                          int size, const std::optional<math::Quaternion>& turn)
@@ -155,8 +103,6 @@ std::size_t append_piece(WorldScene& scene, Axis axis, int first, int last,
     const float cubie_half = cubie_half_extent(size);
     const float low = cubie_center(first, size) - cubie_half;
     const float high = cubie_center(last, size) + cubie_half;
-    const bool low_outer = first == 0;
-    const bool high_outer = last == size - 1;
 
     PieceOf<Vec3> piece;
     for (std::size_t i = 0; i < piece.box.size(); ++i) {
@@ -167,32 +113,8 @@ std::size_t append_piece(WorldScene& scene, Axis axis, int first, int last,
         piece.box[i] = corner;
     }
 
-    const float reach = body_reach(size);
-    const float across = kCubeHalfExtent + reach;
-    const float from = low - (low_outer ? reach : 0.0f);
-    const float to = high + (high_outer ? reach : 0.0f);
-    for (const Face face : cube::faces()) {
-        const bool positive = cube::is_positive_face(face);
-        Vec3 center{0.0f, 0.0f, 0.0f};
-        Vec3 half{across, across, across};
-        if (cube::axis_of(face) == axis) {
-            // An end of the run: only the cube's own faces have a backing.
-            if (!(positive ? high_outer : low_outer)) continue;
-            coordinate(center, axis) = positive ? high : low;
-        } else {
-            center = face_normal(face) * kCubeHalfExtent;
-            coordinate(center, axis) = 0.5f * (from + to);
-            coordinate(half, axis) = 0.5f * (to - from);
-        }
-        piece.backings.push_back(
-            cut_corners(rectangle_on(face, center, half), reach));
-    }
-
     if (turn) {
         for (auto& corner : piece.box) corner = math::quaternion_rotate(*turn, corner);
-        for (auto& backing : piece.backings) {
-            for (auto& point : backing) point = math::quaternion_rotate(*turn, point);
-        }
     }
     scene.pieces.push_back(std::move(piece));
     return scene.pieces.size() - 1;
@@ -207,13 +129,9 @@ float cubie_half_extent(int size) noexcept
 
 float sticker_half_extent(int size) noexcept
 {
-    // Half a gap in from every edge of its cubie.
-    return cubie_half_extent(size) * (1.0f - kStickerGapShare);
-}
-
-float body_reach(int size) noexcept
-{
-    return kStickerGapShare * cubie_half_extent(size);
+    // The border in from every edge of its cubie's face; the border is a
+    // share of the whole edge, twice the half extent.
+    return cubie_half_extent(size) * (1.0f - 2.0f * kCubieBorderShare);
 }
 
 Vec3 sticker_center(const cube::SurfaceSticker& sticker, int size) noexcept
@@ -239,10 +157,16 @@ float cubie_center(int i, int size) noexcept
 void append_sticker(WorldScene& scene, const Vec3& center, float half_extent,
                     Face face, const Color& color)
 {
+    const auto offsets = corners_of(face);
+    // The corners are a unit cube's face, one unit out along the normal; that
+    // unit is taken off, so the quad lies in the plane through `center`.
+    const Vec3 normal = face_normal(face);
+
     WorldFace quad;
     quad.color = color;
-    quad.points = rectangle_on(face, center,
-                               Vec3{half_extent, half_extent, half_extent});
+    for (std::size_t i = 0; i < offsets.size(); ++i) {
+        quad.points[i] = center + (offsets[i] - normal) * half_extent;
+    }
     scene.faces.push_back(quad);
 }
 

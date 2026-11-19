@@ -215,7 +215,7 @@ Sticker는 칸 크기의 `0.88`로 축소해 그리며, 남는 부분이 seam으
 3D 기하는 Phase 3 계약을 보존하도록 정합니다.
 
 - 전체 cube는 여전히 edge 2, 원점 중심입니다. Cubie pitch는 `2/N`, 중심은 `(2i/N) − (N−1)/N × ... ` 즉 index `i`에 대해 `(2i − (N−1)) / N`입니다.
-- 스티커는 자기 cubie 바깥 면의 한가운데에, 가장자리마다 틈의 절반씩 안쪽으로 놓입니다(8차 개정). 틈은 cubie 한 변의 `kStickerGapShare = 0.06`이고, 그 틈으로 몸체(`kBodyColor`)가 보입니다. 한 면의 두 스티커 사이는 절반 둘이 모여 틈 하나, 두 면이 만나는 큐브 모서리도 양쪽 면의 절반이 모여 틈 하나입니다. 면이 하나만 보이는 실루엣에서는 그 면의 backing(면 평면 위에 깔린 몸체색 판)이 모서리 밖으로 틈의 절반(`body_reach`)만큼 더 나와 역시 틈 하나가 됩니다. backing은 면 평면 위에 있어 실루엣 선도 그 면과 같이 원근으로 줄어듭니다(상자를 3D로 키우면 보이지 않는 옆면 쪽 확장까지 투영되어, 위에서 내려다보는 시점에서 아래쪽 실루엣이 굵어졌습니다). backing은 큐브의 바깥 모서리 밖으로만 나오고 회전 중 절단면에서는 멈춰 조각끼리 겹치지 않습니다. 모든 backing은 모서리를 45°로 깎아 큐브 꼭짓점 밖이나 절단면 밖으로 튀어나오지 않습니다. 절단면에는 backing이 없습니다 — 단면은 이미 몸체색이고 조명을 받는 면이라, 조명 없는 띠를 두르면 단면보다 밝거나 어두운 테두리로 보입니다. 틈이 면 위에 있어 면과 함께 원근으로 줄어듭니다. 스티커는 큐브 면 평면(1.0) 위에 있습니다. 8차 개정 전에는 같은 절반 틈(cubie의 0.04)을 두되 몸체가 큐브 면에서 멈춰 실루엣의 선이 절반이었고, 스티커 평면도 0.9733으로 안쪽이었습니다.
+- cubie는 틈 없이 붙어 있고, 각 cubie 면 안쪽에 테두리가 있습니다(8차 개정). 스티커는 cubie 면의 한가운데에, 가장자리마다 테두리(cubie 한 변의 `kCubieBorderShare = 0.03`)만큼 안쪽으로 놓이고, 테두리로 몸체(`kBodyColor`, 상자 실루엣)가 보입니다. 두 cubie 사이와 두 면이 만나는 큐브 모서리는 테두리 둘이 모여 cubie의 0.06이고, 면이 하나만 보이는 실루엣에서는 그 면의 테두리 하나(0.03)입니다. 모든 것이 큐브 자신의 윤곽 안, 면 위에 있어 면과 함께 원근으로 줄고, 시점을 돌려 면이 보였다 사라질 때 생기거나 없어지는 것이 없습니다. 스티커는 큐브 면 평면(1.0) 위에 있습니다. 8차 개정 중간에는 실루엣 선을 안쪽 선과 같게 하려고 면 평면 위 판(backing)을 큐브 밖으로 테두리만큼 내밀었는데, 면이 보였다 사라지는 순간 그 띠가 켜지고 꺼져 어색해 되돌렸습니다. 8차 개정 전에는 스티커를 cubie 중심에서 0.92배로 줄였고(테두리 0.04), 스티커 평면도 0.9733으로 안쪽이었습니다.
 - **Surface sticker만 방출합니다**: cubie의 face 중 위치가 그 face 방향의 바깥 layer와 일치하는 것만 quad가 됩니다. N = 3에서 54개이고 고정 camera에서 culling 후 27개가 남습니다.
 - Cubie의 안쪽 면과 옆면은 방출하지 않습니다. 그래서 seam으로 보이는 것은 항상 배경색이며 seam pixel 검증이 결정적입니다. Layer 분리 시 옆면이 필요한 것은 Phase 5에서 body face를 추가하며 해결합니다.
 
@@ -247,7 +247,7 @@ Browser에서는 canvas가 `min(80vw, 70vh)`라 기본 viewport에서 504px에 �
 
 **3. 전개도 전수 검증** — N = 3에서 54칸의 중심 pixel을 모두 읽어 기대 색 격자와 비교합니다. Sample 3개보다 훨씬 강한 검증이며, 도메인 → 렌더 경로 전체를 덮습니다. 칸 하나가 canvas 1008px에서 약 40px이라 중심 pixel은 anti-aliasing에서 안전합니다.
 
-모서리 검증은 v2와 같습니다. Camera, cube 크기, 스티커 틈(당시 `sticker_scale`, 지금 `kStickerGapShare`), layout 상수 중 무엇이든 바꾸면 위 좌표를 다시 유도해야 합니다.
+모서리 검증은 v2와 같습니다. Camera, cube 크기, 스티커 테두리(당시 `sticker_scale`, 지금 `kCubieBorderShare`), layout 상수 중 무엇이든 바꾸면 위 좌표를 다시 유도해야 합니다.
 
 Native pipeline 검증 (pixel이 아니라 `RenderScene` 수준):
 
@@ -300,7 +300,7 @@ High contrast palette는 `Light::unlit()`(ambient 1, diffuse 0, specular 0) 아�
 
 **허용 오차 ±1 (2차 개정).** Phase 19의 2차 개정으로 스티커가 단색이 아니라 평면 위 밝기 함수를 따르는 linear gradient로 채워집니다. 중앙 sample 스티커의 중앙 픽셀은 이론상 위 표의 값 그대로이지만(함수를 선분으로 근사한 오차는 byte 0.05), gradient 보간의 반올림이 ±1을 만들 수 있습니다. 그래서 **3D sample 세 지점과 단면 색 탐색은 채널당 ±1을 허용**합니다. 전개도, seam, 모서리, 배경은 여전히 정확히 일치해야 합니다. 노멀 부호 실수는 20~40 단위로 드러나므로 이 완화가 계약의 목적을 흔들지 않습니다.
 
-이 계약의 숫자는 test가 엔진에서 읽는 것이 아니라 여기 적힌 것을 옮겨 쓴 것입니다. 광원 위치, ambient, diffuse, 반올림 공식, 스티커 평면의 위치, `kStickerGapShare` 중 하나라도 바꾸면 이 표를 다시 유도하고 [`RenderContract.hpp`](../../tests/app/RenderContract.hpp), [`RenderContractTest.cpp`](../../tests/app/RenderContractTest.cpp), [`sceneContract.ts`](../../web/tests/e2e/sceneContract.ts)를 함께 고쳐야 합니다.
+이 계약의 숫자는 test가 엔진에서 읽는 것이 아니라 여기 적힌 것을 옮겨 쓴 것입니다. 광원 위치, ambient, diffuse, 반올림 공식, 스티커 평면의 위치, `kCubieBorderShare` 중 하나라도 바꾸면 이 표를 다시 유도하고 [`RenderContract.hpp`](../../tests/app/RenderContract.hpp), [`RenderContractTest.cpp`](../../tests/app/RenderContractTest.cpp), [`sceneContract.ts`](../../web/tests/e2e/sceneContract.ts)를 함께 고쳐야 합니다.
 
 > **개정 (2026-10-04)**: 색, 평면별 밝기, `lit()`·`saturated()` 산식, 세 면의 sample 자리, 단면을 찍는 두 점은 이제 `RenderContract.hpp` 한 곳에 적혀 있고 `RenderContractTest.cpp`와 `PointerInteractionTest.cpp`가 함께 읽습니다. 그 전에는 두 파일이 같은 숫자를 각자 적어 두었습니다. `RenderContractTest.cpp`에 남은 것은 seam sample 자리와 layout 비율이고, `PointerInteractionTest.cpp`에는 손으로 옮겨 적은 숫자가 남아 있지 않습니다.
 

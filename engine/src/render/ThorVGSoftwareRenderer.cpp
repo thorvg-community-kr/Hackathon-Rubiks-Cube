@@ -416,18 +416,15 @@ bool ThorVGSoftwareRenderer::rebuild_canvas(
         for (; next_body < scene.bodies.size() &&
                scene.bodies[next_body].first_face <= face_index;
              ++next_body) {
-            // A shape per outline: the silhouette and the backings wind
-            // whichever way the screen turns them, and one shape of both
-            // could cancel where they overlap. Body over body leaves no seam.
-            for (const auto& outline : scene.bodies[next_body].outlines) {
-                auto* shape = add_shape(*canvas_);
-                if (!shape) return false;
-                if (!append_polygon(*shape, outline)) return false;
-                if (shape->fill(graphics::kBodyColor.r, graphics::kBodyColor.g,
-                                graphics::kBodyColor.b, graphics::kBodyColor.a) !=
-                    tvg::Result::Success) {
-                    return false;
-                }
+            auto* shape = add_shape(*canvas_);
+            if (!shape) return false;
+            if (!append_polygon(*shape, scene.bodies[next_body].outline)) {
+                return false;
+            }
+            if (shape->fill(graphics::kBodyColor.r, graphics::kBodyColor.g,
+                            graphics::kBodyColor.b, graphics::kBodyColor.a) !=
+                tvg::Result::Success) {
+                return false;
             }
         }
         return true;

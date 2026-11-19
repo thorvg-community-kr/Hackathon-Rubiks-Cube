@@ -176,8 +176,7 @@ struct RenderStroke {
 inline constexpr Color kBodyColor{70, 74, 82, 255};
 
 /**
- * One piece's body, filled in the body colour: its box's convex silhouette,
- * then the backings under its outer faces that are turned towards the eye.
+ * One piece's body: its box's convex silhouette, filled in the body colour.
  *
  * Drawn straight before the face at `first_face`, the first of the piece's
  * own, so the piece's faces lie on it and every piece drawn later covers it.
@@ -187,7 +186,7 @@ inline constexpr Color kBodyColor{70, 74, 82, 255};
  * of the next piece's first face.
  */
 struct RenderBody {
-    std::vector<std::vector<math::Vec2>> outlines;
+    std::vector<math::Vec2> outline;
     std::size_t first_face = 0;
 };
 

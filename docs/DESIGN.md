@@ -280,7 +280,7 @@ Graphics는 functional style(함수형 스타일)을 유지합니다.
 ```text
 CubeState
     ↓
-BuildScene           (stickers + pieces: box and backings per run of layers)
+BuildScene           (stickers + pieces: one box per run of layers)
     ↓
 Shadow               (piece boxes → ground shadow, world space)
     ↓

@@ -20,31 +20,24 @@ math::Vec3 to_vec3(const math::Vec4& v) noexcept
     return math::Vec3{v.x, v.y, v.z};
 }
 
-/** Twice the signed area of a polygon; positive for counter-clockwise winding. */
-template <std::size_t Count>
-float signed_area_doubled(const std::array<math::Vec2, Count>& points) noexcept
+/** Twice the signed area of a quad; positive for counter-clockwise winding. */
+float signed_area_doubled(const std::array<math::Vec2, kCorners>& points) noexcept
 {
     float sum = 0.0f;
-    for (std::size_t i = 0; i < Count; ++i) {
+    for (std::size_t i = 0; i < kCorners; ++i) {
         const auto& current = points[i];
-        const auto& next = points[(i + 1) % Count];
+        const auto& next = points[(i + 1) % kCorners];
         sum += current.x * next.y - next.x * current.y;
     }
     return sum;
 }
 
-/** A piece with the same map applied to its box and every backing. */
+/** A piece with the same map applied to every corner of its box. */
 template <typename From, typename To, typename Map>
 PieceOf<To> map_piece(const PieceOf<From>& piece, Map&& map)
 {
     PieceOf<To> result;
     for (std::size_t i = 0; i < piece.box.size(); ++i) result.box[i] = map(piece.box[i]);
-    result.backings.reserve(piece.backings.size());
-    for (const auto& backing : piece.backings) {
-        std::array<To, kBackingPoints> mapped{};
-        for (std::size_t i = 0; i < mapped.size(); ++i) mapped[i] = map(backing[i]);
-        result.backings.push_back(mapped);
-    }
     return result;
 }
 
@@ -342,9 +335,7 @@ ClipScene ProjectPass::operator()(const ViewScene& scene) const
     }
 
     // A piece whose box reaches the near plane goes whole, like a face, and
-    // keeps its place so the faces' pieces still name the right ones. Its
-    // backings lie on its box's faces and reach only a hair past them, so
-    // they go with it.
+    // keeps its place so the faces' pieces still name the right ones.
     const float limit = -near_plane;
     result.pieces.reserve(scene.pieces.size());
     for (const auto& piece : scene.pieces) {
@@ -373,15 +364,6 @@ ClipScene CullPass::operator()(ClipScene scene) const
                                    return signed_area_doubled(face.ndc) <= 0.0f;
                                }),
                 faces.end());
-    for (auto& piece : scene.pieces) {
-        if (!piece) continue;
-        auto& backings = piece->backings;
-        backings.erase(std::remove_if(backings.begin(), backings.end(),
-                                      [](const std::array<math::Vec2, kBackingPoints>& backing) {
-                                          return signed_area_doubled(backing) <= 0.0f;
-                                      }),
-                       backings.end());
-    }
     return scene;
 }
 
@@ -452,9 +434,8 @@ RenderScene ViewportPass::operator()(const ClipScene& scene) const
     }
 
     // The bodies: a convex box's outline on screen is the hull of its corners,
-    // and its backings turned towards the eye go on it. A body goes before
-    // the first face of its own piece; the faces arrive grouped by piece in
-    // the pieces' order, so that is a running count.
+    // and it goes before the first face of its own piece. The faces arrive
+    // grouped by piece in the pieces' order, so that is a running count.
     result.bodies.reserve(scene.pieces.size());
     std::size_t first_face = 0;
     for (std::size_t index = 0; index < scene.pieces.size(); ++index) {
@@ -464,19 +445,11 @@ RenderScene ViewportPass::operator()(const ClipScene& scene) const
         }
         const auto& piece = scene.pieces[index];
         if (!piece) continue;
-        RenderBody body;
-        body.first_face = first_face;
         std::vector<math::Vec2> corners;
         corners.reserve(piece->box.size());
         for (const auto& corner : piece->box) corners.push_back(to_pixels(corner));
-        body.outlines.push_back(convex_hull(std::move(corners)));
-        for (const auto& backing : piece->backings) {
-            std::vector<math::Vec2> outline;
-            outline.reserve(backing.size());
-            for (const auto& point : backing) outline.push_back(to_pixels(point));
-            body.outlines.push_back(std::move(outline));
-        }
-        result.bodies.push_back(std::move(body));
+        result.bodies.push_back(
+            RenderBody{convex_hull(std::move(corners)), first_face});
     }
     return result;
 }

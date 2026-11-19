@@ -72,7 +72,7 @@ inline constexpr Sample kRightSample{0.69f, 0.61f};
 /**
  * The middles of three gaps between stickers, projected from the home
  * viewpoint: the edges between cubies, x or y = 1/3 on the cube's face. The
- * gaps are kStickerGapShare of a cubie wide.
+ * line there is two cubies' borders, 2 * kCubieBorderShare of a cubie wide.
  */
 inline constexpr std::array<Sample, 3> kSeamSamples{{
     {0.37144f, 0.64844f},  // +Z, between the center and right stickers

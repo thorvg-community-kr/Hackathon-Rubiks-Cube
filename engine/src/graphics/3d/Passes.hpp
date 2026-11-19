@@ -117,7 +117,7 @@ struct ProjectPass {
 [[nodiscard]] ProjectPass project(const Camera& camera) noexcept;
 
 /**
- * Drops back faces, and the backings turned away with them.
+ * Drops back faces.
  *
  * Judged in NDC, where +Y is still up and a counter-clockwise front face has
  * a positive signed area; doing it after the viewport flip would invert the
@@ -153,8 +153,8 @@ struct DepthSortPass {
  *
  * The shadow gets the stage as its clip and a blur width sized to the
  * rectangle, and every piece becomes a body: its box's convex silhouette,
- * which the renderer also hides the shadow behind, and its backings. This is
- * the one pass that knows the rectangle, so it is the one that writes them.
+ * which the renderer also hides the shadow behind. This is the one pass that
+ * knows the rectangle, so it is the one that writes them.
  */
 struct ViewportPass {
     Rect rect;
