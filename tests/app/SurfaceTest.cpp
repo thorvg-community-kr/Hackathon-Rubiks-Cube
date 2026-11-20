@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -410,6 +411,56 @@ TEST_CASE("a colouring stroke stays on the surface it began on")
     REQUIRE_FALSE(rubiks::app::pointer_down_on(kCube, 100.0f, 100.0f));
 }
 
+TEST_CASE("a surface's scenes sit in its layout area")
+{
+    const rubiks::test::EngineLifecycle engine(kCubeSide, kCubeSide);
+    REQUIRE(rubiks::app::set_surface_scenes(kCube, kSceneCube));
+
+    // A wide canvas, as large as a window, with the room a page leaves for
+    // the cube to the left of its middle.
+    constexpr std::uint32_t kWidth = 1024;
+    constexpr std::uint32_t kHeight = 768;
+    const rubiks::graphics::Rect area{100.0f, 50.0f, 400.0f, 400.0f};
+    REQUIRE(rubiks::app::resize_surface(kCube, kWidth, kHeight));
+    REQUIRE(rubiks::app::set_surface_layout_area(kCube, area.x, area.y,
+                                                 area.width, area.height));
+    REQUIRE(rubiks::app::render());
+
+    // The cube is where it would be on a surface the area's size, moved to
+    // the area: its top face is there, and not in the surface's middle.
+    auto cube = rubiks::graphics::layout(400, 400, rubiks::graphics::ViewMode::Cube3D)
+                    .cube;
+    cube.x += area.x;
+    cube.y += area.y;
+    REQUIRE(pixel(kCube, kWidth, cube.x + cube.width * 0.5f,
+                  cube.y + cube.height * 0.29f) != kDarkGround);
+    const auto whole = rubiks::graphics::layout(kWidth, kHeight,
+                                                rubiks::graphics::ViewMode::Cube3D)
+                           .cube;
+    REQUIRE(pixel(kCube, kWidth, whole.x + whole.width * 0.5f,
+                  whole.y + whole.height * 0.29f) == kDarkGround);
+
+    // No width or height is the whole surface again.
+    REQUIRE(rubiks::app::set_surface_layout_area(kCube, 0.0f, 0.0f, 0.0f, 0.0f));
+    REQUIRE(rubiks::app::render());
+    REQUIRE(pixel(kCube, kWidth, whole.x + whole.width * 0.5f,
+                  whole.y + whole.height * 0.29f) != kDarkGround);
+}
+
+TEST_CASE("a layout area that is not a rectangle of the surface is refused")
+{
+    const rubiks::test::EngineLifecycle engine(kCubeSide, kCubeSide);
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+
+    REQUIRE_FALSE(rubiks::app::set_surface_layout_area(rubiks::app::kSurfaceCount,
+                                                       0.0f, 0.0f, 10.0f, 10.0f));
+    REQUIRE_FALSE(rubiks::app::set_surface_layout_area(kCube, -1.0f, 0.0f, 10.0f, 10.0f));
+    REQUIRE_FALSE(rubiks::app::set_surface_layout_area(kCube, 0.0f, 0.0f, nan, 10.0f));
+    REQUIRE_FALSE(rubiks::app::set_surface_layout_area(kCube, 0.0f, inf, 10.0f, 10.0f));
+    REQUIRE(rubiks::app::set_surface_layout_area(kCube, 0.0f, 0.0f, 10.0f, 10.0f));
+}
+
 TEST_CASE("surfaces and scenes the engine does not have are refused")
 {
     const rubiks::test::EngineLifecycle engine(kCubeSide, kCubeSide);
@@ -455,6 +506,7 @@ TEST_CASE("surface calls are refused before initialization")
     REQUIRE_FALSE(rubiks::test::is_initialized());
     REQUIRE_FALSE(rubiks::app::resize_surface(1, 10, 10));
     REQUIRE_FALSE(rubiks::app::set_surface_scenes(1, kSceneNet));
+    REQUIRE_FALSE(rubiks::app::set_surface_layout_area(1, 0.0f, 0.0f, 10.0f, 10.0f));
     REQUIRE_FALSE(rubiks::app::pointer_down_on(1, 1.0f, 1.0f));
     REQUIRE(rubiks::app::surface_frame(1) == 0);
     REQUIRE(rubiks::app::surface_pixel_buffer(1) == 0);

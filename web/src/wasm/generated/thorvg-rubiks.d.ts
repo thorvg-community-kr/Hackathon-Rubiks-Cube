@@ -27,6 +27,17 @@ export type ThorvgRubiksModule = {
   _thorvg_rubiks_resize_surface(id: number, width: number, height: number): number;
   /** Which scenes surface `id` shows: cube 1, net 2, rings 4, axes 8. */
   _thorvg_rubiks_set_surface_scenes(id: number, scenes: number): number;
+  /**
+   * Lays surface `id`'s scenes out in an area of it, in its pixels; no width
+   * or height is the whole surface.
+   */
+  _thorvg_rubiks_set_surface_layout_area(
+    id: number,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ): number;
   /** Zero for a surface with no buffer; valid until that surface is resized. */
   _thorvg_rubiks_surface_pixel_buffer(id: number): number;
   _thorvg_rubiks_surface_pixel_byte_length(id: number): number;

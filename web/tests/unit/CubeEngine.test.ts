@@ -238,6 +238,7 @@ function createFakeModule() {
     _thorvg_rubiks_set_surface_scenes: vi.fn(
       (): number => behavior.setSurfaceScenesResult,
     ),
+    _thorvg_rubiks_set_surface_layout_area: vi.fn((): number => 1),
     _thorvg_rubiks_surface_pixel_buffer: vi.fn((id: number): number => {
       if (id === 0 && behavior.pixelBufferOverride !== null) {
         return behavior.pixelBufferOverride;
@@ -949,6 +950,25 @@ describe('CubeEngine lighting', () => {
 });
 
 describe('CubeEngine surfaces', () => {
+  it('lays a surface out in an area of it, or all of it again with null', async () => {
+    const { engine, module } = await createEngine();
+
+    engine.setSurfaceLayoutArea(CubeSurface.Cube, { x: 4, y: 2, width: 30, height: 20 });
+    expect(module._thorvg_rubiks_set_surface_layout_area).toHaveBeenLastCalledWith(
+      0, 4, 2, 30, 20,
+    );
+    engine.setSurfaceLayoutArea(CubeSurface.Cube, null);
+    expect(module._thorvg_rubiks_set_surface_layout_area).toHaveBeenLastCalledWith(
+      0, 0, 0, 0, 0,
+    );
+    expect(() =>
+      engine.setSurfaceLayoutArea(CubeSurface.Cube, { x: -1, y: 0, width: 1, height: 1 }),
+    ).toThrow(/Invalid layout area/);
+    expect(() =>
+      engine.setSurfaceLayoutArea(CubeSurface.Cube, { x: 0, y: 0, width: Number.NaN, height: 1 }),
+    ).toThrow(/Invalid layout area/);
+  });
+
   it('shows another surface on a canvas of its own, copied only when drawn', async () => {
     const { engine, module, behavior, putImageData } = await createEngine();
     const net = createFakeCanvas();

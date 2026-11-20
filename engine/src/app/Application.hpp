@@ -78,6 +78,24 @@ inline constexpr std::uint32_t kAllScenes =
                                       std::uint32_t scenes) noexcept;
 
 /**
+ * Lays surface `id`'s scenes out in an area of it rather than in all of it.
+ *
+ * The area is a rectangle in the surface's pixels, and the scenes are placed
+ * in it just as they would be on a surface of its size. The rest of the
+ * surface is still drawn on: it is ground, and the cube's shadow falls across
+ * it. That is what lets a page give the cube a canvas as large as the window,
+ * for its shadow to run out to the window's edges, while the cube stays in the
+ * room the page leaves for it. An area with no width or height is the whole
+ * surface again, which is where every surface starts. A drag begun on the
+ * surface is dropped, as a resize drops one.
+ *
+ * @return false for an unknown surface or an area whose numbers are not all
+ *         finite and none below zero.
+ */
+[[nodiscard]] bool set_surface_layout_area(std::uint32_t id, float x, float y,
+                                           float width, float height) noexcept;
+
+/**
  * Draws every surface whose picture has changed since its last frame.
  *
  * A surface is drawn again only when something it shows is different: the

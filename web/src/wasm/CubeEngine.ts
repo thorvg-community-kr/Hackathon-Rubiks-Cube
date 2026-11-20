@@ -15,6 +15,14 @@ export type CubeEngineSize = {
   readonly height: number;
 };
 
+/** A rectangle of a surface, in its drawing buffer's pixels. */
+export type CubeLayoutArea = {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+};
+
 /** Options for CubeEngine.create(). */
 export type CubeEngineOptions = {
   /**
@@ -459,6 +467,28 @@ export class CubeEngine {
     }
     if (this.module._thorvg_rubiks_set_surface_scenes(id, scenes) === 0) {
       throw new Error(`Engine refused scenes ${scenes} for surface ${id}.`);
+    }
+  }
+
+  /**
+   * Lays a surface's scenes out in an area of it rather than in all of it, or
+   * in all of it again with null.
+   *
+   * The rest of the surface is still drawn on, as ground the cube's shadow
+   * falls across: a canvas larger than the room the page leaves for the cube
+   * can have the cube in that room and its shadow out to the canvas's edges.
+   *
+   * @throws Error when disposed, for numbers that are not finite and
+   *         non-negative, or when the engine refuses the area.
+   */
+  setSurfaceLayoutArea(id: CubeSurface, area: CubeLayoutArea | null): void {
+    this.assertUsable();
+    const { x, y, width, height } = area ?? { x: 0, y: 0, width: 0, height: 0 };
+    if (![x, y, width, height].every((value) => Number.isFinite(value) && value >= 0)) {
+      throw new Error(`Invalid layout area ${x},${y} ${width}x${height}.`);
+    }
+    if (this.module._thorvg_rubiks_set_surface_layout_area(id, x, y, width, height) === 0) {
+      throw new Error(`Engine refused layout area for surface ${id}.`);
     }
   }
 

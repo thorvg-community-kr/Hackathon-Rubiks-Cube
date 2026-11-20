@@ -218,3 +218,25 @@ TEST_CASE("a painting snapshot of another size draws no net")
     REQUIRE(scene.faces.empty());
     REQUIRE(scene.strokes.empty());
 }
+
+TEST_CASE("the shadow may fall across the whole canvas, not the cube's room")
+{
+    // A canvas as large as a window, the cube laid out in the room a page
+    // leaves for it: the ground the shadow may lie on is still all of it.
+    const Cube cube(3);
+    FrameInputs frame;
+    frame.width = 1600;
+    frame.height = 1000;
+    frame.placement = layout(500, 500, ViewMode::Cube3D);
+    frame.placement.cube.x += 300.0f;
+    frame.placement.cube.y += 120.0f;
+    frame.cube = CubeDrawing{CubeRevision{&cube, 0}, std::nullopt, Palette::Classic,
+                             Lighting::standard(), home_orbit()};
+
+    const RenderScene scene = compose(frame);
+    REQUIRE(scene.shadow.has_value());
+    REQUIRE(scene.shadow->clip.x == 0.0f);
+    REQUIRE(scene.shadow->clip.y == 0.0f);
+    REQUIRE(scene.shadow->clip.width == 1600.0f);
+    REQUIRE(scene.shadow->clip.height == 1000.0f);
+}

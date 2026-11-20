@@ -76,3 +76,11 @@ Scramble(재생 중에는 Stop)과 Solve는 full app의 버튼 그대로입니�
 위 본문 중 Net, 상태 줄, `Full version` 링크를 말하는 부분은 이 개정 전의 상태입니다.
 - Minimal의 dock은 full app의 560px 줄을 채우지 않고 세 버튼에 맞춰 줄어듭니다. Scramble은 남는 폭을 다 차지하지 않고 글자 폭에 맞춥니다.
 - Minimal에서는 상태 줄이 빠진 자리만큼 무대가 헤더 밑까지 올라가서, 무대 가운데 그려지는 큐브도 그만큼 위로 올라갑니다. 헤더는 캔버스 위에 겹치고, 헤더 자체 control 말고는 드래그를 통과시킵니다.
+
+## 개정: 큐브 캔버스를 창 전체로 (2026-11-20)
+
+- Minimal에서 큐브 캔버스(`#view`)를 창 전체(`position: fixed; inset: 0`)로 펼쳤습니다. 그림자가 무대(stage) 가장자리에서 잘리지 않고 창 끝까지 이어집니다. 헤더, dock, 상태 줄은 캔버스 위에 서고, 그 밖의 어디를 드래그해도 캔버스에 닿습니다.
+- 큐브의 크기와 자리는 그대로입니다. 엔진에 surface마다 **layout area**(장면을 배치할 영역)가 생겼습니다(`set_surface_layout_area`, C ABI `thorvg_rubiks_set_surface_layout_area`). 장면은 그 영역 크기의 surface에 놓이듯 배치되고 영역 위치만큼 옮겨지며, 영역 밖도 surface라서 그림자가 그 위로 떨어집니다. 너비나 높이가 0이면 surface 전체이고, 모든 surface는 그렇게 시작합니다.
+- 웹은 큐브 캔버스가 들어 있는 상자(`.stage-view--cube`, 큐브의 자리)를 캔버스 픽셀로 재서 넘깁니다(`AppLifecycle`의 `measureCubeArea`). 캔버스가 그 상자와 같으면(full app) 아무것도 넘기지 않습니다. ResizeObserver는 그 상자도 지켜봅니다.
+- `.game-stage`는 minimal에서 size container가 아닙니다. Size containment는 fixed 자식의 기준 상자가 되기 때문이고, minimal에서 container query를 쓰는 것(Split 배치, 축 배지)은 없습니다.
+- 캔버스가 커진 만큼 픽셀 예산(`MAX_STAGE_PIXELS`) 안에서 밀도가 조금 낮아질 수 있습니다. 예산 자체는 그대로입니다.

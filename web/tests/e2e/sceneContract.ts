@@ -230,6 +230,13 @@ export type CanvasFrame = {
  * most of the contract is about; the net's canvas has its own.
  */
 export type CanvasProbe = CanvasFrame & {
+  /**
+   * Where on the cube's canvas the cube is laid out, in its drawing buffer's
+   * pixels: the box the canvas sits in, as AppLifecycle measures it for the
+   * engine, or the whole canvas where the canvas is that box. The minimal
+   * page's canvas is the window and the cube stays in this room inside it.
+   */
+  readonly cubeRoom: { x: number; y: number; width: number; height: number };
   readonly devicePixelRatio: number;
   /**
    * The density every canvas on the stage is drawn at: the device's own,
@@ -310,11 +317,44 @@ export async function probeCanvas(
       const cube = canvasOf('#view');
       const { canvas, context, read } = cube;
 
-      const unit = Math.min(canvas.width, canvas.height);
+      // The room the cube is laid out in, as AppLifecycle measures it: the
+      // box the canvas sits in, unless that is the canvas itself. The engine
+      // lays the cube out on a surface the room's size, rounded, then moves it.
+      const cubeRoom = (() => {
+        const whole = { x: 0, y: 0, width: canvas.width, height: canvas.height };
+        const parent = canvas.parentElement;
+        const box = canvas.getBoundingClientRect();
+        if (parent === null || !(box.width > 0 && box.height > 0)) return whole;
+        const inside = parent.getBoundingClientRect();
+        const left = Math.max(inside.left, box.left);
+        const top = Math.max(inside.top, box.top);
+        const right = Math.min(inside.left + inside.width, box.left + box.width);
+        const bottom = Math.min(inside.top + inside.height, box.top + box.height);
+        if (!(right > left && bottom > top)) return whole;
+        if (
+          left - box.left < 0.5 &&
+          top - box.top < 0.5 &&
+          box.left + box.width - right < 0.5 &&
+          box.top + box.height - bottom < 0.5
+        ) {
+          return whole;
+        }
+        const across = canvas.width / box.width;
+        const down = canvas.height / box.height;
+        return {
+          x: (left - box.left) * across,
+          y: (top - box.top) * down,
+          width: (right - left) * across,
+          height: (bottom - top) * down,
+        };
+      })();
+      const roomWidth = Math.max(1, Math.round(cubeRoom.width));
+      const roomHeight = Math.max(1, Math.round(cubeRoom.height));
+      const unit = Math.min(roomWidth, roomHeight);
 
       const cubeSide = config.cubeRegionSide * unit;
-      const cubeX = (canvas.width - cubeSide) / 2;
-      const cubeY = (canvas.height - cubeSide) / 2;
+      const cubeX = cubeRoom.x + (roomWidth - cubeSide) / 2;
+      const cubeY = cubeRoom.y + (roomHeight - cubeSide) / 2;
       const inCube = ([fx, fy]: readonly number[]): number[] =>
         read(cubeX + fx * cubeSide, cubeY + fy * cubeSide);
 
@@ -406,6 +446,7 @@ export async function probeCanvas(
 
       return {
         ...cube.frame,
+        cubeRoom,
         devicePixelRatio: window.devicePixelRatio,
         density,
         netCanvas: shown ? flat.frame : zero,
@@ -455,9 +496,18 @@ export function expectedNet(size: number = CUBE_SIZE): number[][] {
   return cells;
 }
 
+/** The cube's room, rounded as the engine lays it out. */
+function roomSize(probe: CanvasProbe): { width: number; height: number } {
+  return {
+    width: Math.max(1, Math.round(probe.cubeRoom.width)),
+    height: Math.max(1, Math.round(probe.cubeRoom.height)),
+  };
+}
+
 /** Side of the 3D region in drawing buffer pixels. */
 export function cubeRegionSide(probe: CanvasProbe): number {
-  return CUBE_REGION_SIDE * Math.min(probe.width, probe.height);
+  const room = roomSize(probe);
+  return CUBE_REGION_SIDE * Math.min(room.width, room.height);
 }
 
 /** Turns a point in the 3D region into page coordinates for the mouse. */
@@ -466,8 +516,9 @@ export function pagePointInCube(
   [fx, fy]: readonly number[],
 ): { x: number; y: number } {
   const side = cubeRegionSide(probe);
-  const bufferX = (probe.width - side) / 2 + fx * side;
-  const bufferY = (probe.height - side) / 2 + fy * side;
+  const room = roomSize(probe);
+  const bufferX = probe.cubeRoom.x + (room.width - side) / 2 + fx * side;
+  const bufferY = probe.cubeRoom.y + (room.height - side) / 2 + fy * side;
 
   return {
     x: probe.box.left + (bufferX * probe.box.width) / probe.width,

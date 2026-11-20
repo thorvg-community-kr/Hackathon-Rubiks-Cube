@@ -120,6 +120,7 @@ function createHarness(overrides: {
       presented.set(id, target);
     }),
     setSurfaceScenes: vi.fn(),
+    setSurfaceLayoutArea: vi.fn(),
     // Commits the size to the canvas the way CubeEngine does; surface 0's
     // canvas is the one the engine was made with.
     resizeSurface: vi.fn(
@@ -342,6 +343,34 @@ describe('startApp', () => {
       { width: 60, height: 50 },
     );
     expect(harness.engine.render).toHaveBeenCalledTimes(2);
+  });
+
+  it('lays the cube out in the box its canvas sits in, when the canvas reaches past it', async () => {
+    const harness = createHarness();
+    // A canvas of 100 by 50 with the cube's room 10 in and 5 down, 40 by 30.
+    Object.assign(harness.canvasState, {
+      parentElement: {
+        getBoundingClientRect: () => ({ left: 10, top: 5, width: 40, height: 30 }),
+      },
+    });
+    await harness.start();
+
+    expect(harness.engine.setSurfaceLayoutArea).toHaveBeenLastCalledWith(
+      CubeSurface.Cube,
+      { x: 10, y: 5, width: 40, height: 30 },
+    );
+  });
+
+  it('lays the cube out in all of its canvas when the canvas is its box', async () => {
+    const harness = createHarness();
+    Object.assign(harness.canvasState, {
+      parentElement: {
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 50 }),
+      },
+    });
+    await harness.start();
+
+    expect(harness.engine.setSurfaceLayoutArea).not.toHaveBeenCalled();
   });
 
   it('draws nothing more when no drawing buffer size changed', async () => {

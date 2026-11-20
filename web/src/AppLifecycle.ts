@@ -13,6 +13,7 @@ import {
   CubeViewMode,
   type CubeCanvasTheme,
   type CubeEngineSize,
+  type CubeLayoutArea,
 } from './wasm/CubeEngine.ts';
 import {
   canvasThemeOf,
@@ -54,6 +55,8 @@ export type EngineLike = GameEngine & {
      * @returns whether the size changed, and so a frame is owed.
      */
     resizeSurface(id: CubeSurface, size: CubeEngineSize | null): boolean;
+    /** Where on a surface its scenes are laid out; null is all of it. */
+    setSurfaceLayoutArea(id: CubeSurface, area: CubeLayoutArea | null): void;
     /** A press on one surface, in that surface's pixels. */
     pointerDownOn(id: CubeSurface, x: number, y: number): boolean;
     pointerMove(x: number, y: number): void;
@@ -400,6 +403,56 @@ export async function startApp(
   );
 
   /**
+   * Where on the cube's canvas the cube is laid out, in the canvas's pixels.
+   *
+   * The box of the element the canvas sits in: that is the room the page
+   * leaves for the cube. Where the canvas is that box, as it usually is, the
+   * answer is null -- all of the canvas. The minimal page stretches the canvas
+   * out to the window's edges so the cube's shadow can run out to them, and
+   * there the cube stays in its room while the canvas reaches past it.
+   */
+  const room: Element | null = canvas.parentElement ?? null;
+  const measureCubeArea = (size: CubeEngineSize | null): CubeLayoutArea | null => {
+    if (size === null || room === null) return null;
+    const box = canvas.getBoundingClientRect();
+    if (!(box.width > 0 && box.height > 0)) return null;
+    const inside = room.getBoundingClientRect();
+    const boxRight = box.left + box.width;
+    const boxBottom = box.top + box.height;
+    const left = Math.max(inside.left, box.left);
+    const top = Math.max(inside.top, box.top);
+    const right = Math.min(inside.left + inside.width, boxRight);
+    const bottom = Math.min(inside.top + inside.height, boxBottom);
+    if (!(right > left && bottom > top)) return null;
+    // Within half a CSS pixel of the canvas's own edges, it is the canvas.
+    if (
+      left - box.left < 0.5 &&
+      top - box.top < 0.5 &&
+      boxRight - right < 0.5 &&
+      boxBottom - bottom < 0.5
+    ) {
+      return null;
+    }
+    const across = size.width / box.width;
+    const down = size.height / box.height;
+    return {
+      x: (left - box.left) * across,
+      y: (top - box.top) * down,
+      width: (right - left) * across,
+      height: (bottom - top) * down,
+    };
+  };
+  let cubeArea: CubeLayoutArea | null = null;
+  const sameArea = (a: CubeLayoutArea | null, b: CubeLayoutArea | null): boolean =>
+    a === b ||
+    (a !== null &&
+      b !== null &&
+      a.x === b.x &&
+      a.y === b.y &&
+      a.width === b.width &&
+      a.height === b.height);
+
+  /**
    * Brings every drawing buffer to its canvas's box.
    *
    * The engine is asked about every surface and says which it changed: it
@@ -413,6 +466,12 @@ export async function startApp(
     surfaces.forEach(({ id }, index) => {
       if (engine.resizeSurface(id, sizes[index] ?? null)) changed = true;
     });
+    const area = measureCubeArea(sizes[0] ?? null);
+    if (!sameArea(area, cubeArea)) {
+      engine.setSurfaceLayoutArea(CubeSurface.Cube, area);
+      cubeArea = area;
+      changed = true;
+    }
     return changed;
   };
 
@@ -711,6 +770,9 @@ export async function startApp(
       }) ?? null;
     observer = createObserver(applySize);
     for (const surface of surfaces) observer.observe(surface.canvas);
+    // The cube's room can change without its canvas changing, when the
+    // canvas is the window and the room is what the page leaves inside it.
+    if (room !== null) observer.observe(room);
     // Device pixel ratio changes arrive with window resize events.
     win.addEventListener('resize', applySize);
     win.addEventListener('pagehide', onPageHide);

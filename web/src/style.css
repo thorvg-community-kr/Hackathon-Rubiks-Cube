@@ -2389,6 +2389,30 @@ kbd {
   }
 }
 
+/* The cube's canvas is the whole window, so the cube's shadow runs out to
+   the window's edges instead of stopping at the stage's. The engine still
+   lays the cube out in the stage's box, which keeps its place (see
+   measureCubeArea in AppLifecycle.ts). The stage stops being a size
+   container here: that would make it the box a fixed canvas sits in, and
+   nothing on this page asks the container anything. The header, the dock and
+   the status line stand over the canvas; a drag anywhere else reaches it. */
+.game-shell[data-mode="minimal"] .game-stage {
+  container-type: normal;
+}
+
+.game-shell[data-mode="minimal"] .stage-view--cube > #view {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  z-index: 0;
+}
+
+.game-shell[data-mode="minimal"] :is(.action-dock, .clock) {
+  position: relative;
+  z-index: 1;
+}
+
 /* The status line goes too, unless it is the page saying why there is no
    cube: those two states below show it whatever the page. */
 .game-shell[data-mode="minimal"] .status-line {

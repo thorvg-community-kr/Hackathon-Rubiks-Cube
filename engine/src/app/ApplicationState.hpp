@@ -154,6 +154,9 @@ struct Surface {
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     std::uint32_t scenes = 0;
+    // Where on the surface its scenes are laid out; no width or height is
+    // the whole surface. See set_surface_layout_area().
+    graphics::Rect layout_area;
     graphics::CanvasLayout placement;
 
     // What the target holds now, or nothing when it has to be drawn whatever

@@ -40,6 +40,7 @@ if host_machine.system() == 'emscripten'
     '_thorvg_rubiks_shutdown',
     '_thorvg_rubiks_resize_surface',
     '_thorvg_rubiks_set_surface_scenes',
+    '_thorvg_rubiks_set_surface_layout_area',
     '_thorvg_rubiks_surface_pixel_buffer',
     '_thorvg_rubiks_surface_pixel_byte_length',
     '_thorvg_rubiks_surface_frame',

@@ -1,5 +1,6 @@
 #include "app/Application.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -149,8 +150,24 @@ void relayout(Surface& surface) noexcept
     const auto style = net && rings ? graphics::FlatStyle::Both
                        : net        ? graphics::FlatStyle::Net
                                     : graphics::FlatStyle::Rings;
+
+    // In a layout area, the scenes are laid out as on a surface of its size
+    // and then moved to where it is.
+    const graphics::Rect& area = surface.layout_area;
+    const bool in_area = area.width > 0.0f && area.height > 0.0f;
+    const auto side = [](float extent) {
+        return static_cast<std::uint32_t>(std::max(1.0f, std::round(extent)));
+    };
     surface.placement =
-        graphics::layout(surface.width, surface.height, mode, style);
+        in_area ? graphics::layout(side(area.width), side(area.height), mode, style)
+                : graphics::layout(surface.width, surface.height, mode, style);
+    if (!in_area) return;
+    for (graphics::Rect* region : {&surface.placement.cube, &surface.placement.net,
+                                   &surface.placement.rings}) {
+        if (region->width <= 0.0f || region->height <= 0.0f) continue;
+        region->x += area.x;
+        region->y += area.y;
+    }
 }
 
 /**
@@ -465,6 +482,28 @@ bool set_surface_scenes(std::uint32_t id, std::uint32_t scenes) noexcept
     if (state->gesture_surface == id) state->interaction.cancel();
 
     surface.scenes = scenes;
+    relayout(surface);
+    return true;
+}
+
+bool set_surface_layout_area(std::uint32_t id, float x, float y, float width,
+                             float height) noexcept
+{
+    if (!state || id >= kSurfaceCount) return false;
+    for (const float value : {x, y, width, height}) {
+        if (!std::isfinite(value) || value < 0.0f) return false;
+    }
+
+    Surface& surface = state->surfaces[id];
+    const graphics::Rect area{x, y, width, height};
+    if (surface.layout_area == area) return true;
+
+    // The same as a resize to the gesture on it: its regions are about to
+    // move.
+    drain_orbit();
+    if (state->gesture_surface == id) state->interaction.cancel();
+
+    surface.layout_area = area;
     relayout(surface);
     return true;
 }

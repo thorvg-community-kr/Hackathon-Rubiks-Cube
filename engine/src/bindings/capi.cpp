@@ -57,6 +57,19 @@ int thorvg_rubiks_set_surface_scenes(
 }
 
 /**
+ * Lays surface `id`'s scenes out in an area of it, in its pixels; an area with
+ * no width or height is the whole surface.
+ *
+ * @return one when accepted; zero for an unknown surface or an area that is
+ *         not finite and non-negative.
+ */
+int thorvg_rubiks_set_surface_layout_area(std::uint32_t id, float x, float y,
+                                          float width, float height) noexcept
+{
+    return rubiks::app::set_surface_layout_area(id, x, y, width, height) ? 1 : 0;
+}
+
+/**
  * Returns surface `id`'s pixel buffer address in WASM linear memory.
  *
  * Valid until that surface is next resized, or until shutdown.
