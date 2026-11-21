@@ -7,6 +7,8 @@ import {
   MAX_CUBE_SIZE,
   MAX_SCRAMBLE_MOVES,
   MIN_CUBE_SIZE,
+  CUBE_RENDERERS,
+  type CubeRenderer,
 } from '../wasm/CubeEngine.ts';
 
 /**
@@ -30,6 +32,11 @@ export type GameShell = {
   /** The lighting sliders, which the lifecycle wires once an engine is up. */
   readonly lightingUi: LightingUi;
   readonly themeButtons: readonly HTMLButtonElement[];
+  /**
+   * One button per renderer, each carrying `data-renderer-choice`: in
+   * Settings, and beside the sun and moon on the minimal page.
+   */
+  readonly rendererButtons: readonly HTMLButtonElement[];
   /** The rail buttons that open and close the three detail panels. */
   readonly panelToggles: readonly HTMLButtonElement[];
   readonly interactionHint: HTMLElement;
@@ -250,6 +257,31 @@ const FACE_KEYS: readonly {
   { face: 'b', turn: -1, name: 'back' },
 ];
 
+/**
+ * What each renderer is called on its button: in full in Settings, shorter
+ * in the minimal page's header, and shortest there on a phone.
+ */
+const RENDERER_NAMES: Record<CubeRenderer, { full: string; short: string; shortest: string }> = {
+  software: { full: 'Software', short: 'SW', shortest: 'SW' },
+  webgl: { full: 'WebGL', short: 'WebGL', shortest: 'GL' },
+  webgpu: { full: 'WebGPU', short: 'WebGPU', shortest: 'GPU' },
+};
+
+/**
+ * One button per renderer. Off until the page knows which renderer it got,
+ * and every one named in full for a screen reader.
+ */
+function rendererChoices(length: 'full' | 'short'): string {
+  return CUBE_RENDERERS.map((renderer) => {
+    const names = RENDERER_NAMES[renderer];
+    const label =
+      length === 'full'
+        ? names.full
+        : `<span class="renderer-name--wide">${names.short}</span><span class="renderer-name--narrow">${names.shortest}</span>`;
+    return `<button type="button" data-renderer-choice="${renderer}" aria-label="${names.full}" aria-pressed="false" disabled>${label}</button>`;
+  }).join('');
+}
+
 /** The twelve face-turn keys, each with its face's colour beside the letter. */
 function faceKeys(): string {
   return FACE_KEYS.map(({ face, turn, name }) => {
@@ -314,7 +346,7 @@ export function createGameShell(
       </div>
       <button class="chip-button size-chip" type="button" id="cube-size-chip"><span class="visually-hidden">Cube size </span><span id="cube-size-label">${DEFAULT_CUBE_SIZE}×${DEFAULT_CUBE_SIZE}×${DEFAULT_CUBE_SIZE}</span>${icon(ICONS.chevron, 16)}</button>
     </div>
-    ${minimal ? `<button class="pill-button pill-button--icon theme-toggle" type="button" id="theme-toggle" aria-label="Dark theme" aria-pressed="false"><span class="theme-toggle__light">${icon(ICONS.sun, 18)}</span><span class="theme-toggle__dark">${icon(ICONS.moon, 18)}</span></button>` : ''}
+    ${minimal ? `<div class="header-switches"><div class="segmented segmented--compact" role="group" aria-label="Renderer">${rendererChoices('short')}</div><button class="pill-button pill-button--icon theme-toggle" type="button" id="theme-toggle" aria-label="Dark theme" aria-pressed="false"><span class="theme-toggle__light">${icon(ICONS.sun, 18)}</span><span class="theme-toggle__dark">${icon(ICONS.moon, 18)}</span></button></div>` : ''}
 
     <div class="app-header__tools">
       <button class="pill-button command-trigger" type="button" id="command-trigger"
@@ -476,6 +508,11 @@ export function createGameShell(
         <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
         <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
       </div>
+    </div>
+
+    <div class="settings__group" role="group" aria-label="Renderer">
+      <p class="settings__label">Renderer</p>
+      <div class="segmented">${rendererChoices('full')}</div>
     </div>
 
     <div class="settings__group" role="group" aria-label="Sticker colors">
@@ -673,6 +710,7 @@ export function createGameShell(
       values: requireElement<HTMLOutputElement>(root, '#lighting-values'),
     },
     themeButtons: requireAll<HTMLButtonElement>(root, '[data-theme-choice]'),
+    rendererButtons: requireAll<HTMLButtonElement>(root, '[data-renderer-choice]'),
     panelToggles: requireAll<HTMLButtonElement>(root, '[data-panel]'),
     interactionHint: requireElement<HTMLElement>(root, '#interaction-hint'),
     cubeSizeChip: requireElement<HTMLButtonElement>(root, '#cube-size-chip'),

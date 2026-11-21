@@ -110,4 +110,35 @@ describe('the two pages', () => {
     expect(shell.themeToggle?.closest('.app-header')).not.toBeNull();
     expect(shell.themeToggle?.getAttribute('aria-label')).toBe('Dark theme');
   });
+
+  it('offers the three renderers in Settings, off until the page has one', () => {
+    const shell = createGameShell(document.createElement('div'));
+    const choices = shell.rendererButtons.map((button) => [
+      button.dataset.rendererChoice,
+      button.getAttribute('aria-label'),
+      button.textContent,
+    ]);
+    expect(choices).toEqual([
+      ['software', 'Software', 'Software'],
+      ['webgl', 'WebGL', 'WebGL'],
+      ['webgpu', 'WebGPU', 'WebGPU'],
+    ]);
+    expect(shell.rendererButtons.every((button) => button.disabled)).toBe(true);
+    expect(
+      shell.rendererButtons.every((button) => button.closest('#settings-panel') !== null),
+    ).toBe(true);
+  });
+
+  it('puts the renderers beside the minimal page\'s sun and moon too', () => {
+    const shell = createGameShell(document.createElement('div'), 'minimal');
+    const header = shell.rendererButtons.filter(
+      (button) => button.closest('.header-switches') !== null,
+    );
+    expect(header.map((button) => button.dataset.rendererChoice)).toEqual([
+      'software',
+      'webgl',
+      'webgpu',
+    ]);
+    expect(shell.themeToggle?.closest('.header-switches')).not.toBeNull();
+  });
 });

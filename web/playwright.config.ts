@@ -26,6 +26,28 @@ export default defineConfig({
     // the same background; theme.spec.ts overrides it to check the other one.
     colorScheme: 'dark',
   },
+  // Two browsers. The suite's pixel assertions read the cube's canvas through
+  // a 2D context, which only the software renderer leaves it with, and they
+  // are written against the software rasterizer's exact output: that browser
+  // has no WebGL and no WebGPU adapter, so the page falls back to software.
+  // gpu.spec.ts checks the GPU renderers instead, in a browser that has
+  // both, from screenshots rather than from the canvas. `--project=software`
+  // runs the suite alone on a machine with no GPU.
+  projects: [
+    {
+      name: 'software',
+      testIgnore: /gpu\.spec\.ts/,
+      use: { launchOptions: { args: ['--disable-3d-apis'] } },
+    },
+    {
+      // Chromium's new headless mode, on the machine's own GPU: the old one
+      // emulates WebGPU on SwiftShader, where ThorVG 1.1.4's WebGPU engine
+      // ends up drawing into an invalid texture.
+      name: 'gpu',
+      testMatch: /gpu\.spec\.ts/,
+      use: { channel: 'chromium', launchOptions: { args: ['--enable-unsafe-webgpu'] } },
+    },
+  ],
   webServer: smokeBaseUrl
     ? undefined
     : {

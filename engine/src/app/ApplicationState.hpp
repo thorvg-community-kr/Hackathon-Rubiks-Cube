@@ -149,8 +149,11 @@ struct Player {
  * surface holding one scene shows that scene alone, filling it.
  */
 struct Surface {
-    // Absent while the surface has no size: a surface put away holds nothing.
+    // Absent while the surface has no size: a surface put away holds nothing
+    // -- unless it draws on the GPU, whose context on the page's canvas it
+    // keeps for as long as it lives (see present_surface_on_gpu()).
     std::unique_ptr<render::Renderer> renderer;
+    bool on_gpu = false;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     std::uint32_t scenes = 0;

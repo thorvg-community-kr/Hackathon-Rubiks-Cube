@@ -7,9 +7,10 @@ subdir('cube')
 subdir('math')
 subdir('graphics')
 subdir('interaction')
+subdir('render')
 
-# ThorVG enters here and nowhere earlier: app/ and render/ are the only parts
-# of the engine allowed to know about the rendering backend.
+# The application knows the rendering backend only as render/Renderers.hpp:
+# ThorVG's headers stop at render/ (see render/meson.build).
 application_lib = static_library(
   'rubiks-engine',
   files(
@@ -20,13 +21,12 @@ application_lib = static_library(
     'app/Sharing.cpp',
     'app/Solve.cpp',
     'app/Painting.cpp',
-    'render/ThorVGSoftwareRenderer.cpp',
   ),
-  dependencies: [interaction_dep, cube_solver_dep, thorvg_dep],
+  dependencies: [interaction_dep, cube_solver_dep, render_dep],
 )
 
 application_dep = declare_dependency(
-  dependencies: [interaction_dep, cube_solver_dep, thorvg_dep],
+  dependencies: [interaction_dep, cube_solver_dep, render_dep],
   link_with: application_lib,
 )
 
@@ -41,6 +41,9 @@ if host_machine.system() == 'emscripten'
     '_thorvg_rubiks_resize_surface',
     '_thorvg_rubiks_set_surface_scenes',
     '_thorvg_rubiks_set_surface_layout_area',
+    '_thorvg_rubiks_gpu_canvas_key',
+    '_thorvg_rubiks_present_surface_on_gpu',
+    '_thorvg_rubiks_webgpu_device_status',
     '_thorvg_rubiks_surface_pixel_buffer',
     '_thorvg_rubiks_surface_pixel_byte_length',
     '_thorvg_rubiks_surface_frame',
@@ -118,7 +121,10 @@ if host_machine.system() == 'emscripten'
       '-sALLOW_MEMORY_GROWTH=1',
       '-sNO_EXIT_RUNTIME=1',
       '-sEXPORTED_FUNCTIONS=' + ','.join(wasm_c_abi),
-      '-sEXPORTED_RUNTIME_METHODS=HEAPU8',
+      # specialHTMLTargets lets the page hand a canvas to the GPU renderer by
+      # a key rather than by a selector into the document, and UTF8ToString
+      # reads that key out of the engine.
+      '-sEXPORTED_RUNTIME_METHODS=HEAPU8,specialHTMLTargets,UTF8ToString',
     ],
     name_suffix: 'js',
   )

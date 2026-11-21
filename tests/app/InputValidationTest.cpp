@@ -1,5 +1,5 @@
 #include "app/Application.hpp"
-#include "render/ThorVGSoftwareRenderer.hpp"
+#include "render/Renderers.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -11,7 +11,7 @@
 namespace {
 
 constexpr std::uint32_t kOversized =
-    rubiks::render::ThorVGSoftwareRenderer::kMaxDimension + 1;
+    rubiks::render::kMaxDimension + 1;
 constexpr std::uint32_t kUint32Max =
     std::numeric_limits<std::uint32_t>::max();
 

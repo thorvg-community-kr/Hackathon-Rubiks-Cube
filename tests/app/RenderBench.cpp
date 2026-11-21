@@ -20,7 +20,7 @@
 #include "graphics/3d/OrbitCamera.hpp"
 #include "graphics/3d/Passes.hpp"
 #include "graphics/3d/Pipeline.hpp"
-#include "render/ThorVGSoftwareRenderer.hpp"
+#include "render/Renderers.hpp"
 #endif
 
 // Phase 19, step 6: frame time of the 3D view at the largest cube the app
@@ -173,7 +173,7 @@ int main(int argc, char** argv)
     // Where the time goes: the same scene with parts of the shadow chain and
     // the highlights taken away, drawn straight through the renderer.
     const auto time_variant = [&](const char* name, RenderScene variant) {
-        auto renderer = rubiks::render::ThorVGSoftwareRenderer::create(kCanvas, kCanvas);
+        auto renderer = rubiks::render::create_software_renderer(kCanvas, kCanvas);
         if (!renderer) return;
         std::vector<double> times;
         for (int i = 0; i < frames; ++i) {
@@ -190,8 +190,8 @@ int main(int argc, char** argv)
     {
         RenderScene bare = scene;
         for (auto& face : bare.faces) face.highlights.clear();
-        auto lit = rubiks::render::ThorVGSoftwareRenderer::create(kCanvas, kCanvas);
-        auto flat = rubiks::render::ThorVGSoftwareRenderer::create(kCanvas, kCanvas);
+        auto lit = rubiks::render::create_software_renderer(kCanvas, kCanvas);
+        auto flat = rubiks::render::create_software_renderer(kCanvas, kCanvas);
         if (lit && flat && lit->render(scene) && flat->render(bare)) {
             const auto* a = reinterpret_cast<const std::uint8_t*>(lit->pixel_buffer());
             const auto* b = reinterpret_cast<const std::uint8_t*>(flat->pixel_buffer());

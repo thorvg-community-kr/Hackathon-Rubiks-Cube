@@ -17,7 +17,7 @@ import {
 
 /**
  * The page the address opens without `?extended`: the cube alone, Scramble,
- * Reset and Solve, and a light and dark switch. Nothing on it links to the
+ * Reset and Solve, a renderer switch, and a light and dark switch. Nothing on it links to the
  * full app; every other spec is the full app's and opens `./?extended`.
  *
  * With no net on the page, what the cube is in is read off the cube itself:
@@ -32,8 +32,12 @@ const PHONE = { width: 375, height: 812 };
 async function visibleControls(page: Page): Promise<string[]> {
   return page.evaluate(() =>
     [...document.querySelectorAll<HTMLElement>('#app button, #app a[href]')]
-      .filter((control) => control.checkVisibility())
-      .map((control) => control.id),
+      // A control closed to no width is not one anybody sees either.
+      .filter(
+        (control) =>
+          control.checkVisibility() && control.getBoundingClientRect().width > 0,
+      )
+      .map((control) => control.id || `renderer:${control.dataset.rendererChoice}`),
   );
 }
 
@@ -72,12 +76,10 @@ for (const [name, viewport] of [
     );
     await expect(page.locator('#game-title')).toBeVisible();
     await expect(page.locator('.brand__byline')).toHaveText('powered by ThorVG');
-    expect(await visibleControls(page)).toEqual([
-      'theme-toggle',
-      'scramble',
-      'minimal-reset',
-      'solve',
-    ]);
+    // The renderer switch closes to the chip drawing the page once it knows.
+    await expect
+      .poll(() => visibleControls(page))
+      .toEqual(['renderer:software', 'theme-toggle', 'scramble', 'minimal-reset', 'solve']);
 
     // Everything else the full app has is off the screen.
     for (const selector of [
@@ -244,6 +246,36 @@ test('the sun and moon switch the theme, and the full app keeps it', async ({
     'aria-pressed',
     'true',
   );
+});
+
+test('the renderer switch opens the page again asking for the one it names', async ({
+  page,
+}) => {
+  await page.setViewportSize(DESKTOP);
+  await open(page);
+  const pressed = page.locator('.header-switches [data-renderer-choice][aria-pressed="true"]');
+
+  // This browser has no WebGL and no WebGPU, so the page draws in software.
+  await expect(pressed).toHaveAttribute('data-renderer-choice', 'software');
+
+  // At rest the switch is that one chip; pointing at it opens all three.
+  const widths = (): Promise<number[]> =>
+    page
+      .locator('.header-switches [data-renderer-choice]')
+      .evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().width));
+  await expect.poll(widths).toEqual([expect.any(Number), 0, 0]);
+  expect((await widths())[0]).toBeGreaterThan(0);
+  await pressed.hover();
+  await expect.poll(async () => (await widths()).every((width) => width > 0)).toBe(true);
+
+  await page.locator('.header-switches [data-renderer-choice="webgl"]').click();
+  await expect(page).toHaveURL(/[?&]renderer=webgl(&|$)/);
+  await expect(page.locator('#app')).toHaveAttribute('data-state', 'ready');
+  // Still the minimal page, and still software: WebGL was asked for and
+  // refused, and the switch says what drew rather than what was asked.
+  await expect(page.locator('.game-shell')).toHaveAttribute('data-mode', 'minimal');
+  await expect(page.locator('#view')).toHaveAttribute('data-renderer', 'software');
+  await expect(pressed).toHaveAttribute('data-renderer-choice', 'software');
 });
 
 test('a shared link without ?extended opens its cube on the minimal page', async ({

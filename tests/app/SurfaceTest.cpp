@@ -461,6 +461,21 @@ TEST_CASE("a layout area that is not a rectangle of the surface is refused")
     REQUIRE(rubiks::app::set_surface_layout_area(kCube, 0.0f, 0.0f, 10.0f, 10.0f));
 }
 
+TEST_CASE("a build with no GPU keeps every surface drawing into memory")
+{
+    const rubiks::test::EngineLifecycle engine(kCubeSide, kCubeSide);
+    using rubiks::app::GpuPresentation;
+
+    // The native build has neither WebGL nor WebGPU: asked, it refuses
+    // without touching the canvas, and the surface goes on drawing into its
+    // pixel buffer as before.
+    REQUIRE(rubiks::app::webgpu_device_status() == rubiks::render::GpuDeviceStatus::Failed);
+    REQUIRE(rubiks::app::present_surface_on_gpu(kCube, 1, "#view") == GpuPresentation::Refused);
+    REQUIRE(rubiks::app::present_surface_on_gpu(kCube, 2, "#view") == GpuPresentation::Refused);
+    REQUIRE(rubiks::app::render());
+    REQUIRE(rubiks::app::surface_pixel_buffer(kCube) != 0);
+}
+
 TEST_CASE("surfaces and scenes the engine does not have are refused")
 {
     const rubiks::test::EngineLifecycle engine(kCubeSide, kCubeSide);
@@ -507,6 +522,8 @@ TEST_CASE("surface calls are refused before initialization")
     REQUIRE_FALSE(rubiks::app::resize_surface(1, 10, 10));
     REQUIRE_FALSE(rubiks::app::set_surface_scenes(1, kSceneNet));
     REQUIRE_FALSE(rubiks::app::set_surface_layout_area(1, 0.0f, 0.0f, 10.0f, 10.0f));
+    REQUIRE(rubiks::app::present_surface_on_gpu(1, 1, "#view") ==
+            rubiks::app::GpuPresentation::Refused);
     REQUIRE_FALSE(rubiks::app::pointer_down_on(1, 1.0f, 1.0f));
     REQUIRE(rubiks::app::surface_frame(1) == 0);
     REQUIRE(rubiks::app::surface_pixel_buffer(1) == 0);

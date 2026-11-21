@@ -2325,9 +2325,9 @@ kbd {
 }
 
 /*
- * The minimal page: the brand, the light and dark switch, the cube alone, and
- * one row of Scramble, Reset and Solve. The shell
- * is the full app's, so what this page has no use for is taken off the
+ * The minimal page: the brand, the renderer and the light and dark switches,
+ * the cube alone, and one row of Scramble, Reset and Solve. The shell is the
+ * full app's, so what this page has no use for is taken off the
  * screen here -- and out of the tab order and the accessibility tree with
  * it. Nothing on this page opens the share card, the paint bar, the panels,
  * Settings or the menu either; they are listed so that stays true.
@@ -2444,6 +2444,64 @@ kbd {
   display: none;
 }
 
+/* The renderer switch stands beside it, as tall as it and as quiet. */
+.header-switches {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.segmented--compact {
+  flex-wrap: nowrap;
+  gap: 0;
+  padding: 2px;
+  background: transparent;
+}
+
+.segmented--compact button {
+  max-width: 6em;
+  min-height: calc(var(--target) - 6px);
+  padding: 0 10px;
+  overflow: hidden;
+  font-size: 12.5px;
+  transition:
+    max-width 180ms ease,
+    padding 180ms ease,
+    opacity 140ms ease;
+}
+
+/* At rest it is one chip, the renderer drawing the page; pointing at it, or
+   tabbing into it, opens the other two beside it. The closed ones stay in
+   the tab order, so a keyboard opens it the same way. Before the page knows
+   its renderer, or when the engine never started, none is pressed and all
+   three show. The switch stands at the header's end, so it opens leftwards. */
+.segmented--compact:has([aria-pressed="true"]):not(:hover, :focus-within)
+  button:not([aria-pressed="true"]) {
+  max-width: 0;
+  padding-inline: 0;
+  opacity: 0;
+}
+
+.renderer-name--narrow {
+  display: none;
+}
+
+/* On a phone the title needs the room: the names shorten and close up. */
+@media (max-width: 479px) {
+  .segmented--compact button {
+    padding: 0 8px;
+  }
+
+  .renderer-name--wide {
+    display: none;
+  }
+
+  .renderer-name--narrow {
+    display: inline;
+  }
+}
+
 /* Page states */
 
 #app[data-state="loading"] .game-stage canvas {
@@ -2481,9 +2539,10 @@ kbd {
    to time, share, command or size. The gear stays: the theme is the page's
    own and works whether or not an engine ever arrived, and a browser that
    cannot run the cube is still a browser somebody reads this message on.
-   The minimal page's sun and moon go: it is given a theme only once the
-   browser is known to run the cube. */
-#app[data-state="unsupported"] #theme-toggle,
+   The minimal page's sun and moon go, and the renderer switch beside them:
+   it is given a theme only once the browser is known to run the cube, and
+   no renderer draws in one that cannot. */
+#app[data-state="unsupported"] .header-switches,
 #app[data-state="unsupported"] #timer,
 #app[data-state="unsupported"] #share,
 #app[data-state="unsupported"] #command-trigger,
@@ -2522,7 +2581,8 @@ kbd {
   .pill-button,
   .soft-button,
   .rail-button,
-  .dock-button {
+  .dock-button,
+  .segmented--compact button {
     transition: none;
     animation: none;
   }

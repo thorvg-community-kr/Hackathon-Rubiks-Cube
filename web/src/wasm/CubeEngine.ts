@@ -23,8 +23,32 @@ export type CubeLayoutArea = {
   readonly height: number;
 };
 
+/**
+ * Which of ThorVG's engines draws the canvases: WebGPU or WebGL2 straight
+ * onto them with the GPU, or the software rasterizer into memory, copied out.
+ * Listed from software up; everything that names them goes by this list.
+ */
+export const CUBE_RENDERERS = ['software', 'webgl', 'webgpu'] as const;
+
+/** One of CUBE_RENDERERS. */
+export type CubeRenderer = (typeof CUBE_RENDERERS)[number];
+
+/** The renderer a string names, or null for one that names none. */
+export function cubeRendererOf(value: string | null | undefined): CubeRenderer | null {
+  return CUBE_RENDERERS.find((renderer) => renderer === value) ?? null;
+}
+
+/**
+ * Which renderer a page asks for. Auto tries WebGPU, then WebGL2, then
+ * software; a named one is the only one tried before software, which is
+ * always the last resort.
+ */
+export type CubeRendererChoice = CubeRenderer | 'auto';
+
 /** Options for CubeEngine.create(). */
 export type CubeEngineOptions = {
+  /** The renderer to ask for; auto when absent. */
+  readonly renderer?: CubeRendererChoice;
   /**
    * Overrides how the Emscripten module is loaded.
    * Unit tests inject a fake module factory here; the default loads the
@@ -334,19 +358,29 @@ export function isUint32(value: number): boolean {
   return Number.isInteger(value) && value >= 0 && value <= 0xffffffff;
 }
 
+/** One canvas showing one engine surface, whoever draws on it. */
+type CanvasPresentation = {
+  readonly id: CubeSurface;
+  readonly canvas: HTMLCanvasElement;
+  /** The size the engine last took for the surface; 0 by 0 while put away. */
+  width: number;
+  height: number;
+};
+
+/** A canvas the GPU draws on itself: it shows its frame with nothing copied. */
+type GpuCanvasPresentation = CanvasPresentation & {
+  readonly kind: 'gpu';
+};
+
 /**
- * One canvas showing one engine surface.
+ * A canvas a surface drawn into memory is copied out to.
  *
  * Holds the view over that surface's pixels and the frame it last copied
  * out, so a surface the engine did not draw again is not copied again either.
  */
-type Presentation = {
-  readonly id: CubeSurface;
-  readonly canvas: HTMLCanvasElement;
+type CopiedCanvasPresentation = CanvasPresentation & {
+  readonly kind: 'copied';
   readonly context: CanvasRenderingContext2D;
-  /** The size the engine last took for the surface; 0 by 0 while put away. */
-  width: number;
-  height: number;
   pointer: number;
   byteLength: number;
   view: Uint8ClampedArray<ArrayBuffer> | null;
@@ -355,15 +389,103 @@ type Presentation = {
   frame: number;
 };
 
-function presentationOf(
+type Presentation = GpuCanvasPresentation | CopiedCanvasPresentation;
+
+/** The engine's code for each GPU renderer (render::GpuBackend). */
+const GPU_BACKEND: Readonly<Record<Exclude<CubeRenderer, 'software'>, number>> = {
+  webgl: 1,
+  webgpu: 2,
+};
+
+/** How far the engine has got asking for its WebGPU device (render::GpuDeviceStatus). */
+const WEBGPU_DEVICE = { ready: 0, failed: 1, pending: 2 } as const;
+
+/** What became of a surface asked to draw with the GPU (app::GpuPresentation). */
+const GPU_PRESENTATION = { refused: 0, onGpu: 1, canvasLost: 2 } as const;
+
+/** How long a page waits for the browser to hand over a WebGPU device. */
+export const WEBGPU_WAIT_MS = 3000;
+const WEBGPU_POLL_MS = 25;
+
+/**
+ * The renderers worth trying, in order, for what a page asked for.
+ *
+ * WebGPU only where the browser has it at all; whether its adapter is a
+ * real GPU the engine decides. Software is always last, so there is always
+ * one that works.
+ */
+function candidatesFor(choice: CubeRendererChoice): CubeRenderer[] {
+  const webgpu = 'gpu' in navigator;
+  const order: CubeRenderer[] =
+    choice === 'auto' ? (webgpu ? ['webgpu', 'webgl'] : ['webgl']) : [choice];
+  return [...order.filter((renderer) => renderer !== 'software'), 'software'];
+}
+
+/** The key the engine finds a surface's canvas under (see capi.cpp). */
+function gpuCanvasKey(module: ThorvgRubiksModule, id: CubeSurface): string {
+  return module.UTF8ToString(module._thorvg_rubiks_gpu_canvas_key(id));
+}
+
+/**
+ * Asks the engine for its WebGPU device and waits for the browser's answer.
+ *
+ * @returns true when the device is ready to draw with.
+ */
+async function webgpuReady(module: ThorvgRubiksModule): Promise<boolean> {
+  const deadline = Date.now() + WEBGPU_WAIT_MS;
+  for (;;) {
+    const status = module._thorvg_rubiks_webgpu_device_status();
+    if (status === WEBGPU_DEVICE.ready) return true;
+    if (status !== WEBGPU_DEVICE.pending || Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, WEBGPU_POLL_MS));
+  }
+}
+
+/**
+ * Hands a canvas to the GPU renderer for a surface.
+ *
+ * @returns true when the engine now draws that surface with the GPU, false
+ *          when it goes on drawing it into memory and the canvas is free.
+ * @throws Error when the canvas was taken by a context the GPU then could not
+ *         draw with: a canvas gives one kind of context, so nothing else can
+ *         draw on it now. The engine tries everything that can fail before
+ *         it takes the canvas, so this does not happen in practice.
+ */
+function presentOnGpu(
+  module: ThorvgRubiksModule,
   id: CubeSurface,
   canvas: HTMLCanvasElement,
-): Presentation {
+  renderer: CubeRenderer,
+): boolean {
+  if (renderer === 'software') return false;
+  const key = gpuCanvasKey(module, id);
+  module.specialHTMLTargets[key] = canvas;
+  const presented = module._thorvg_rubiks_present_surface_on_gpu(id, GPU_BACKEND[renderer]);
+  if (presented === GPU_PRESENTATION.onGpu) return true;
+  delete module.specialHTMLTargets[key];
+  if (presented === GPU_PRESENTATION.canvasLost) {
+    throw new Error(`Surface ${id}'s canvas was taken by ${renderer} and cannot be drawn.`);
+  }
+  return false;
+}
+
+function gpuPresentationOf(
+  id: CubeSurface,
+  canvas: HTMLCanvasElement,
+): GpuCanvasPresentation {
+  return { kind: 'gpu', id, canvas, width: 0, height: 0 };
+}
+
+function copiedPresentationOf(
+  id: CubeSurface,
+  canvas: HTMLCanvasElement,
+): CopiedCanvasPresentation {
   const context = canvas.getContext('2d');
   if (context === null) {
     throw new Error('CubeEngine requires a 2D canvas context.');
   }
   return {
+    kind: 'copied',
     id,
     canvas,
     context,
@@ -389,10 +511,16 @@ export class CubeEngine {
   /** Every canvas the engine draws on, by surface. */
   private readonly presentations = new Map<CubeSurface, Presentation>();
   private disposed = false;
+  /** The renderer every canvas is drawn with. */
+  readonly renderer: CubeRenderer;
 
   /**
    * Loads the WASM module and initializes the engine to a canvas: at the
    * size the options give, or at the canvas's CSS box otherwise.
+   *
+   * The renderer is settled here, on the cube's canvas, before anything
+   * takes a 2D context of it: a canvas gives one kind of context only. What
+   * the GPU cannot draw on falls back to software.
    *
    * @throws Error when the module, the 2D context, or initialization fails.
    */
@@ -401,7 +529,6 @@ export class CubeEngine {
     options: CubeEngineOptions = {},
   ): Promise<CubeEngine> {
     const module = await (options.loadModule ?? loadGeneratedModule)();
-    const first = presentationOf(CubeSurface.Cube, canvas);
 
     const size =
       options.size ??
@@ -421,7 +548,19 @@ export class CubeEngine {
     // engine instance exists must shut the module down again, or the only
     // owner able to release them is lost.
     try {
-      return new CubeEngine(module, first, size);
+      let renderer: CubeRenderer = 'software';
+      for (const candidate of candidatesFor(options.renderer ?? 'auto')) {
+        if (candidate === 'webgpu' && !(await webgpuReady(module))) continue;
+        if (candidate === 'software' || presentOnGpu(module, CubeSurface.Cube, canvas, candidate)) {
+          renderer = candidate;
+          break;
+        }
+      }
+      const first =
+        renderer === 'software'
+          ? copiedPresentationOf(CubeSurface.Cube, canvas)
+          : gpuPresentationOf(CubeSurface.Cube, canvas);
+      return new CubeEngine(module, first, size, renderer);
     } catch (error) {
       module._thorvg_rubiks_shutdown();
       throw error;
@@ -432,8 +571,10 @@ export class CubeEngine {
     module: ThorvgRubiksModule,
     first: Presentation,
     size: CubeEngineSize,
+    renderer: CubeRenderer,
   ) {
     this.module = module;
+    this.renderer = renderer;
     this.presentations.set(first.id, first);
     this.adopt(first, size);
   }
@@ -444,6 +585,9 @@ export class CubeEngine {
    * The surface has no size until resizeSurface() gives it one; until then
    * there is nothing on it to show.
    *
+   * It is drawn with the engine's renderer, or in software when the GPU
+   * cannot draw on it.
+   *
    * @throws Error when disposed, for surface 0 -- which shows on the canvas
    *         the engine was created with -- or without a 2D context.
    */
@@ -452,7 +596,12 @@ export class CubeEngine {
     if (id === CubeSurface.Cube || !Object.values(CubeSurface).includes(id)) {
       throw new Error(`Surface ${id} cannot be given a canvas.`);
     }
-    this.presentations.set(id, presentationOf(id, canvas));
+    this.presentations.set(
+      id,
+      presentOnGpu(this.module, id, canvas, this.renderer)
+        ? gpuPresentationOf(id, canvas)
+        : copiedPresentationOf(id, canvas),
+    );
   }
 
   /**
@@ -561,8 +710,10 @@ export class CubeEngine {
       throw new Error('Engine rendering failed.');
     }
 
+    // A canvas the GPU draws on already shows its frame; only those drawn
+    // into memory are copied out.
     for (const presentation of this.presentations.values()) {
-      if (presentation.byteLength === 0) continue;
+      if (presentation.kind !== 'copied' || presentation.byteLength === 0) continue;
       const frame = this.module._thorvg_rubiks_surface_frame(presentation.id);
       if (frame === presentation.frame) continue;
       presentation.context.putImageData(this.imageOf(presentation), 0, 0);
@@ -1319,6 +1470,9 @@ export class CubeEngine {
 
     this.disposed = true;
     this.presentations.clear();
+    for (const id of Object.values(CubeSurface)) {
+      delete this.module.specialHTMLTargets[gpuCanvasKey(this.module, id)];
+    }
     this.module._thorvg_rubiks_shutdown();
   }
 
@@ -1376,15 +1530,20 @@ export class CubeEngine {
   private adopt(presentation: Presentation, size: CubeEngineSize | null): void {
     presentation.width = size?.width ?? 0;
     presentation.height = size?.height ?? 0;
-    presentation.pointer = 0;
-    presentation.byteLength = 0;
-    presentation.view = null;
-    presentation.image = null;
-    presentation.frame = -1;
+    if (presentation.kind === 'copied') {
+      presentation.pointer = 0;
+      presentation.byteLength = 0;
+      presentation.view = null;
+      presentation.image = null;
+      presentation.frame = -1;
+    }
     if (size === null) return;
 
     presentation.canvas.width = size.width;
     presentation.canvas.height = size.height;
+    // The GPU draws on the canvas at the size it now has; there is no
+    // buffer in memory to take.
+    if (presentation.kind === 'gpu') return;
 
     const { id } = presentation;
     const pointer = this.module._thorvg_rubiks_surface_pixel_buffer(id);
@@ -1409,7 +1568,7 @@ export class CubeEngine {
    * The view is reused while the buffer stays valid and is recreated after
    * memory growth detaches the previous ArrayBuffer.
    */
-  private imageOf(presentation: Presentation): ImageData {
+  private imageOf(presentation: CopiedCanvasPresentation): ImageData {
     const heapBuffer = this.module.HEAPU8.buffer;
     const stale =
       presentation.view === null ||

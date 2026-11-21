@@ -11,6 +11,7 @@
 #include "graphics/CanvasTheme.hpp"
 #include "graphics/Layout.hpp"
 #include "graphics/Palette.hpp"
+#include "render/Renderers.hpp"
 
 namespace rubiks::app {
 
@@ -76,6 +77,45 @@ inline constexpr std::uint32_t kAllScenes =
  */
 [[nodiscard]] bool set_surface_scenes(std::uint32_t id,
                                       std::uint32_t scenes) noexcept;
+
+/** What became of a surface asked to draw with the GPU. */
+enum class GpuPresentation : std::uint32_t {
+    /** Still drawn into memory; the canvas is untouched, free for another. */
+    Refused = 0,
+    /** Drawn with the GPU straight onto the canvas from now on. */
+    OnGpu = 1,
+    /**
+     * Still drawn into memory, but the canvas was given a context the GPU
+     * then could not draw with, and a canvas gives one kind only: nothing
+     * else can draw on it now. Everything that can fail is tried before the
+     * context is taken, so this is rare.
+     */
+    CanvasLost = 2,
+};
+
+/**
+ * Draws surface `id` with the GPU, straight onto a canvas of the page.
+ *
+ * `backend` is render::GpuBackend's: 1 WebGL2, 2 WebGPU, which needs
+ * webgpu_device_status() to have answered Ready first. `canvas` names the
+ * canvas as Emscripten finds one. The surface's renderer is replaced with one
+ * holding a context or surface on that canvas, made at once so the answer
+ * says whether the page can have it. From then on the surface draws nothing
+ * into memory -- its pixel buffer is zero -- and keeps its context when it
+ * is put away, since a canvas gives one only once. A surface already on the
+ * GPU stays as it is, and the call is refused; so is every call in a build
+ * with no GPU, the native one included.
+ */
+[[nodiscard]] GpuPresentation present_surface_on_gpu(std::uint32_t id,
+                                                     std::uint32_t backend,
+                                                     const char* canvas) noexcept;
+
+/**
+ * Asks for the WebGPU device every GPU surface on WebGPU shares, the first
+ * time, and says how far that has got (see render::webgpu_device()). The
+ * browser answers later, so a page asks again while it is Pending.
+ */
+[[nodiscard]] render::GpuDeviceStatus webgpu_device_status() noexcept;
 
 /**
  * Lays surface `id`'s scenes out in an area of it rather than in all of it.

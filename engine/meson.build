@@ -1,6 +1,10 @@
+# The software engine everywhere; the WebAssembly build adds ThorVG's GL
+# (WebGL2) and WebGPU engines, for a page to draw its canvases with the GPU.
+thorvg_engines = host_machine.system() == 'emscripten' ? 'cpu,gl,wg' : 'cpu'
+
 thorvg_options = [
   'default_library=static',
-  'engines=cpu',
+  'engines=' + thorvg_engines,
   'extra=',
   'file=false',
   'loaders=',

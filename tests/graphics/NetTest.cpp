@@ -28,6 +28,25 @@ namespace {
 
 using Catch::Approx;
 using namespace rubiks::graphics;
+
+/**
+ * A painting in the external order turned into the cube's native row-major
+ * faces. Kept beside the one test that uses it, where its shape can be
+ * required rather than assumed.
+ */
+[[nodiscard]] std::vector<rubiks::cube::FaceColor> native_painting(
+    const std::vector<rubiks::cube::FaceColor>& painting, int size)
+{
+    const std::size_t span = static_cast<std::size_t>(size);
+    REQUIRE(size >= rubiks::cube::kMinCubeSize);
+    REQUIRE(painting.size() == rubiks::cube::kFaceCount * span * span);
+    std::vector<rubiks::cube::FaceColor> native(painting.size());
+    for (const rubiks::cube::SurfaceSticker sticker : rubiks::cube::surface_cells(size)) {
+        native[rubiks::cube::surface_index(sticker, size)] =
+            painting[rubiks::cube::painting_index(sticker, size)];
+    }
+    return native;
+}
 using rubiks::cube::Cube;
 using rubiks::cube::Face;
 using rubiks::cube::FaceCell;
@@ -1250,7 +1269,7 @@ TEST_CASE("native face views and legacy paintings draw identical nets")
         const RenderScene native = build_net_painting(
             view, rect, Palette::Classic, blamed, cursor);
         const std::vector<FaceColor> restored =
-            rubiks::test::native_painting(saved, size);
+            native_painting(saved, size);
         const RenderScene legacy = build_net_painting(
             rubiks::cube::CubeView{size, restored.data()}, rect,
             Palette::Classic, blamed, cursor);

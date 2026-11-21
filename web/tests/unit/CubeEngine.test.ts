@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   computeDrawingBufferSize,
@@ -14,6 +14,8 @@ import {
   MAX_DIMENSION,
   MAX_SCRAMBLE_MOVES,
   MAX_SHARED_MOVES,
+  WEBGPU_WAIT_MS,
+  type CubeRendererChoice,
 } from '../../src/wasm/CubeEngine.ts';
 import type { ThorvgRubiksModule } from '../../src/wasm/generated/thorvg-rubiks.js';
 
@@ -86,6 +88,19 @@ function createFakeModule() {
     // The keyboard's place on a colouring, packed as the engine packs it.
     paintCursor: -1,
     paintCursorStepResult: 1,
+    // A module with no GPU unless a test says otherwise: every surface is
+    // refused with its canvas untouched, and there is no WebGPU device. The
+    // device answers in turn from the list, its last answer for good.
+    gpuPresentation: 0,
+    webgpuStatuses: [1] as number[],
+  };
+
+  // Where the engine keeps the canvas key it hands out, as a C string.
+  const keyPointer = 1 << 15;
+  const canvasKey = (id: number): number => {
+    const bytes = new TextEncoder().encode(`!rubiks-surface-${id}\0`);
+    heap.set(bytes, keyPointer);
+    return keyPointer;
   };
 
   // Where the engine hands out its lighting buffer, and how long the last
@@ -262,6 +277,22 @@ function createFakeModule() {
     _thorvg_rubiks_paint_at_cursor: vi.fn((): number => 1),
     _thorvg_rubiks_set_paint_cursor_shown: vi.fn(),
     _thorvg_rubiks_paint_cursor: vi.fn((): number => behavior.paintCursor),
+    specialHTMLTargets: {} as Record<string, HTMLCanvasElement>,
+    // Emscripten's own reader, standing in over the fake heap.
+    UTF8ToString: (pointer: number): string => {
+      let end = pointer;
+      while (end < heap.length && heap[end] !== 0) end += 1;
+      return new TextDecoder().decode(heap.subarray(pointer, end));
+    },
+    _thorvg_rubiks_gpu_canvas_key: vi.fn(canvasKey),
+    _thorvg_rubiks_present_surface_on_gpu: vi.fn(
+      (_id: number, _backend: number): number => behavior.gpuPresentation,
+    ),
+    _thorvg_rubiks_webgpu_device_status: vi.fn((): number =>
+      behavior.webgpuStatuses.length > 1
+        ? behavior.webgpuStatuses.shift()!
+        : behavior.webgpuStatuses[0]!,
+    ),
   } satisfies ThorvgRubiksModule;
 
   /** Simulates WASM memory growth: the old ArrayBuffer is replaced. */
@@ -300,6 +331,151 @@ async function createEngine() {
 /** The cube's canvas is surface 0, sized like any other. */
 const resizeCube = (engine: CubeEngine, size: { width: number; height: number }) =>
   engine.resizeSurface(CubeSurface.Cube, size);
+
+/** A fake engine and a canvas, made with the renderer a page asks for. */
+async function createEngineAsking(
+  renderer: CubeRendererChoice,
+  setUp: (behavior: ReturnType<typeof createFakeModule>['behavior']) => void = () => {},
+) {
+  const fake = createFakeModule();
+  setUp(fake.behavior);
+  const surface = createFakeCanvas();
+  const engine = await CubeEngine.create(surface.canvas, {
+    loadModule: async () => fake.module,
+    renderer,
+  });
+  return { engine, ...fake, ...surface };
+}
+
+describe('CubeEngine renderers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('draws with WebGL on the canvas itself and copies nothing out', async () => {
+    const { engine, module, canvas, putImageData } = await createEngineAsking('webgl', (b) => {
+      b.gpuPresentation = 1;
+    });
+
+    expect(engine.renderer).toBe('webgl');
+    expect(module._thorvg_rubiks_present_surface_on_gpu).toHaveBeenCalledWith(0, 1);
+    expect(module.specialHTMLTargets['!rubiks-surface-0']).toBe(canvas);
+    // No 2D context is taken: the canvas has a WebGL one.
+    expect(canvas.getContext).not.toHaveBeenCalled();
+
+    resizeCube(engine, { width: 60, height: 40 });
+    expect(canvas.width).toBe(60);
+    expect(canvas.height).toBe(40);
+    engine.render();
+    expect(putImageData).not.toHaveBeenCalled();
+
+    engine.dispose();
+    expect(module.specialHTMLTargets['!rubiks-surface-0']).toBeUndefined();
+  });
+
+  it('falls back to software when the GPU refuses the canvas untouched', async () => {
+    const { engine, module, canvas, putImageData } = await createEngineAsking('webgl');
+
+    expect(engine.renderer).toBe('software');
+    expect(module.specialHTMLTargets['!rubiks-surface-0']).toBeUndefined();
+    expect(canvas.getContext).toHaveBeenCalledWith('2d');
+    engine.render();
+    expect(putImageData).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails plainly when the GPU took the canvas and then could not draw', async () => {
+    const fake = createFakeModule();
+    fake.behavior.gpuPresentation = 2;
+    const surface = createFakeCanvas();
+
+    await expect(
+      CubeEngine.create(surface.canvas, { loadModule: async () => fake.module, renderer: 'webgl' }),
+    ).rejects.toThrow(/taken by webgl/);
+    expect(fake.module._thorvg_rubiks_shutdown).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the WebGPU device and then draws with it', async () => {
+    const { engine, module } = await createEngineAsking('webgpu', (b) => {
+      b.webgpuStatuses = [2, 2, 0];
+      b.gpuPresentation = 1;
+    });
+
+    expect(engine.renderer).toBe('webgpu');
+    expect(module._thorvg_rubiks_webgpu_device_status).toHaveBeenCalledTimes(3);
+    expect(module._thorvg_rubiks_present_surface_on_gpu).toHaveBeenCalledWith(0, 2);
+  });
+
+  it('asked for WebGPU and given no device, draws in software', async () => {
+    const { engine, module } = await createEngineAsking('webgpu');
+
+    // A named renderer is the only one tried before software.
+    expect(engine.renderer).toBe('software');
+    expect(module._thorvg_rubiks_webgpu_device_status).toHaveBeenCalled();
+    expect(module._thorvg_rubiks_present_surface_on_gpu).not.toHaveBeenCalled();
+  });
+
+  it('on auto, goes on to WebGL when there is no WebGPU device', async () => {
+    vi.stubGlobal('navigator', { gpu: {} });
+    const { engine, module } = await createEngineAsking('auto', (b) => {
+      b.webgpuStatuses = [1];
+      b.gpuPresentation = 1;
+    });
+
+    expect(module._thorvg_rubiks_webgpu_device_status).toHaveBeenCalled();
+    expect(engine.renderer).toBe('webgl');
+    expect(module._thorvg_rubiks_present_surface_on_gpu).toHaveBeenCalledWith(0, 1);
+  });
+
+  it('on auto, gives up waiting for a WebGPU device that never comes', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('navigator', { gpu: {} });
+    const fake = createFakeModule();
+    fake.behavior.webgpuStatuses = [2];
+    fake.behavior.gpuPresentation = 1;
+    const surface = createFakeCanvas();
+
+    const made = CubeEngine.create(surface.canvas, {
+      loadModule: async () => fake.module,
+      renderer: 'auto',
+    });
+    await vi.advanceTimersByTimeAsync(WEBGPU_WAIT_MS + 100);
+    const engine = await made;
+
+    expect(engine.renderer).toBe('webgl');
+  });
+
+  it('on auto, does not ask for WebGPU where the browser has none', async () => {
+    const { engine, module } = await createEngineAsking('auto', (b) => {
+      b.gpuPresentation = 1;
+    });
+
+    expect(module._thorvg_rubiks_webgpu_device_status).not.toHaveBeenCalled();
+    expect(engine.renderer).toBe('webgl');
+  });
+
+  it('draws the other canvases with the same renderer, or software if refused', async () => {
+    const { engine, module, behavior } = await createEngineAsking('webgl', (b) => {
+      b.gpuPresentation = 1;
+    });
+    const net = createFakeCanvas();
+    engine.presentSurface(CubeSurface.Net, net.canvas);
+    expect(module._thorvg_rubiks_present_surface_on_gpu).toHaveBeenLastCalledWith(1, 1);
+    expect(module.specialHTMLTargets['!rubiks-surface-1']).toBe(net.canvas);
+    expect(net.canvas.getContext).not.toHaveBeenCalled();
+
+    behavior.gpuPresentation = 0;
+    const rings = createFakeCanvas();
+    engine.presentSurface(CubeSurface.Rings, rings.canvas);
+    expect(rings.canvas.getContext).toHaveBeenCalledWith('2d');
+  });
+
+  it('keeps to software in a module whose GPU refuses everything', async () => {
+    const { engine, canvas } = await createEngine();
+    expect(engine.renderer).toBe('software');
+    expect(canvas.getContext).toHaveBeenCalledWith('2d');
+  });
+});
 
 describe('computeDrawingBufferSize', () => {
   it('rounds CSS size by the device pixel ratio', () => {

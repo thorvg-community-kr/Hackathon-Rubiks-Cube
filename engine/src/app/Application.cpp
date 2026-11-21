@@ -8,8 +8,6 @@
 #include <utility>
 #include <vector>
 
-#include <thorvg.h>
-
 #include "app/ApplicationState.hpp"
 #include "cube/Cube.hpp"
 #include "cube/CubeMove.hpp"
@@ -24,7 +22,7 @@
 #include "interaction/NetPicking.hpp"
 #include "interaction/RingsPicking.hpp"
 #include "render/Renderer.hpp"
-#include "render/ThorVGSoftwareRenderer.hpp"
+#include "render/Renderers.hpp"
 
 namespace rubiks::app {
 
@@ -310,10 +308,20 @@ void relayout_all() noexcept
     for (auto& surface : state->surfaces) relayout(surface);
 }
 
-/** Whether `id` names a surface, and that surface has a target to draw on. */
+/**
+ * Whether a surface has a target and a size to draw on. A GPU surface put
+ * away keeps its renderer -- its canvas gives a context only once -- but at
+ * no size it has nothing on it to draw, press or copy out.
+ */
+[[nodiscard]] bool drawable(const Surface& surface) noexcept
+{
+    return surface.renderer != nullptr && surface.width != 0;
+}
+
+/** Whether `id` names a surface, and that surface is drawable(). */
 [[nodiscard]] bool live_surface(std::uint32_t id) noexcept
 {
-    return id < kSurfaceCount && state->surfaces[id].renderer != nullptr;
+    return id < kSurfaceCount && drawable(state->surfaces[id]);
 }
 
 /**
@@ -401,17 +409,17 @@ bool initialize(std::uint32_t width, std::uint32_t height) noexcept
 {
     // Invalid dimensions fail even when already initialized, so a caller
     // can never mistake a rejected size for an active configuration.
-    if (!render::ThorVGSoftwareRenderer::valid_dimensions(width, height)) {
+    if (!render::valid_dimensions(width, height)) {
         return false;
     }
 
     if (state) return true;
 
-    if (tvg::Initializer::init(0) != tvg::Result::Success) return false;
+    if (!render::start_thorvg()) return false;
 
-    auto renderer = render::ThorVGSoftwareRenderer::create(width, height);
+    auto renderer = render::create_software_renderer(width, height);
     if (!renderer) {
-        static_cast<void>(tvg::Initializer::term());
+        render::stop_thorvg();
         return false;
     }
 
@@ -432,17 +440,19 @@ bool resize_surface(std::uint32_t id, std::uint32_t width,
 
     const bool away = width == 0 && height == 0;
     if (!away &&
-        !render::ThorVGSoftwareRenderer::valid_dimensions(width, height)) {
+        !render::valid_dimensions(width, height)) {
         return false;
     }
 
     Surface& surface = state->surfaces[id];
     if (away) {
-        surface.renderer.reset();
+        // A GPU surface keeps its context: a canvas gives a context once, and
+        // the surface draws nothing while it has no size anyway.
+        if (!surface.on_gpu) surface.renderer.reset();
     } else if (surface.renderer) {
         if (!surface.renderer->resize(width, height)) return false;
     } else {
-        auto renderer = render::ThorVGSoftwareRenderer::create(width, height);
+        auto renderer = render::create_software_renderer(width, height);
         if (!renderer) return false;
         // A surface given a size after the theme was chosen is cleared to
         // that theme like the rest, not to the renderer's own default.
@@ -484,6 +494,47 @@ bool set_surface_scenes(std::uint32_t id, std::uint32_t scenes) noexcept
     surface.scenes = scenes;
     relayout(surface);
     return true;
+}
+
+GpuPresentation present_surface_on_gpu(std::uint32_t id, std::uint32_t backend,
+                                       const char* canvas) noexcept
+{
+    if (!state || id >= kSurfaceCount || canvas == nullptr) {
+        return GpuPresentation::Refused;
+    }
+    if (backend != static_cast<std::uint32_t>(render::GpuBackend::WebGl) &&
+        backend != static_cast<std::uint32_t>(render::GpuBackend::WebGpu)) {
+        return GpuPresentation::Refused;
+    }
+
+    // A second renderer on the same canvas would be made before the first
+    // let go of it, and a WebGPU surface going away unconfigures the canvas
+    // under the one just configured.
+    Surface& surface = state->surfaces[id];
+    if (surface.on_gpu) return GpuPresentation::Refused;
+
+    // At the surface's size, or the smallest there is for a surface with
+    // none yet: the context is made now either way, so a page learns at once
+    // whether this canvas can be drawn with the GPU.
+    const std::uint32_t width = surface.width == 0 ? 1 : surface.width;
+    const std::uint32_t height = surface.height == 0 ? 1 : surface.height;
+    auto attempt = render::create_gpu_renderer(
+        static_cast<render::GpuBackend>(backend), canvas, width, height);
+    if (!attempt.renderer) {
+        return attempt.canvas_lost ? GpuPresentation::CanvasLost
+                                   : GpuPresentation::Refused;
+    }
+    attempt.renderer->set_background(graphics::canvas_background(state->canvas_theme));
+
+    surface.renderer = std::move(attempt.renderer);
+    surface.on_gpu = true;
+    surface.drawn.reset();
+    return GpuPresentation::OnGpu;
+}
+
+render::GpuDeviceStatus webgpu_device_status() noexcept
+{
+    return render::webgpu_device();
 }
 
 bool set_surface_layout_area(std::uint32_t id, float x, float y, float width,
@@ -732,7 +783,7 @@ bool render() noexcept
     // count has moved, so the skipped work is skipped all the way to the page.
     bool drawn_all = true;
     for (auto& surface : state->surfaces) {
-        if (!surface.renderer) continue;
+        if (!drawable(surface)) continue;
 
         graphics::FrameInputs frame = frame_for(surface);
         if (surface.drawn == frame) continue;
@@ -877,9 +928,9 @@ void shutdown() noexcept
     if (!state) return;
 
     // Destroying the state releases everything it owns, the renderer
-    // included, so ThorVG is only terminated afterwards.
+    // included, so ThorVG is only stopped afterwards.
     state.reset();
-    static_cast<void>(tvg::Initializer::term());
+    render::stop_thorvg();
 }
 
 }  // namespace rubiks::app

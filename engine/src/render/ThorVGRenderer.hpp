@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <memory>
 
 #include <thorvg.h>
 
@@ -9,57 +8,39 @@
 #include "graphics/Color.hpp"
 #include "graphics/RenderScene.hpp"
 #include "render/Renderer.hpp"
+#include "render/Renderers.hpp"
 
 namespace rubiks::render {
 
 /**
- * Software renderer that owns a ThorVG SwCanvas and its pixel buffer.
+ * Draws a RenderScene with ThorVG, whatever ThorVG draws it into.
  *
- * The pixel buffer lives in engine memory, uses tvg::ColorSpace::ABGR8888S,
- * and stays valid from a successful create() or resize() until the next
- * resize() or destruction. Callers borrow it read-only through
- * pixel_buffer() and pixel_byte_length().
- *
- * The canvas contents are rebuilt from the RenderScene on every frame, so
- * the renderer holds no scene state between frames.
+ * Everything a frame is made of -- the ground, the shadow, the bodies, the
+ * faces and their glints, the lifted pieces, the strokes -- is built here, on
+ * ThorVG's common canvas, so every backend draws the same picture. What a
+ * backend adds is only its canvas and the target it points it at, which
+ * ThorVGBackend (ThorVGBackend.hpp) owns: a pixel buffer in memory
+ * (ThorVGSoftwareRenderer.cpp), a WebGL context or a WebGPU surface on the
+ * page (ThorVGGpuRenderer.cpp). The canvas contents are rebuilt from the
+ * RenderScene on every frame, so no renderer holds scene state between
+ * frames.
  */
-class ThorVGSoftwareRenderer : public Renderer {
+class ThorVGRenderer : public Renderer {
 public:
-    /** Largest accepted width or height in pixels. */
-    static constexpr std::uint32_t kMaxDimension = 8192;
+    ~ThorVGRenderer() override = default;
+
+    ThorVGRenderer(const ThorVGRenderer&) = delete;
+    ThorVGRenderer& operator=(const ThorVGRenderer&) = delete;
 
     /**
-     * Validates dimensions against zero, kMaxDimension, and byte-size
-     * overflow. Shared by create(), resize(), and the application boundary.
-     */
-    [[nodiscard]] static bool valid_dimensions(std::uint32_t width,
-                                               std::uint32_t height) noexcept;
-
-    /**
-     * Creates a renderer with a valid target and the fixed Phase 1 scene.
-     *
-     * @return nullptr when validation, allocation, or ThorVG setup fails.
-     */
-    [[nodiscard]] static std::unique_ptr<ThorVGSoftwareRenderer> create(
-        std::uint32_t width, std::uint32_t height) noexcept;
-
-    ~ThorVGSoftwareRenderer() override;
-
-    ThorVGSoftwareRenderer(const ThorVGSoftwareRenderer&) = delete;
-    ThorVGSoftwareRenderer& operator=(const ThorVGSoftwareRenderer&) = delete;
-
-    /**
-     * Replaces the pixel buffer and canvas target with a new size.
-     *
-     * The previous target survives validation and allocation failures, which
-     * happen before anything is touched. A failed target swap leaves the
-     * renderer unusable until it is destroyed and recreated; the only caller
-     * treats any resize failure as fatal, so nothing rolls back. A successful
-     * resize does not touch scene state, because the scene arrives with each
-     * frame.
+     * Points the canvas at a target of a new size, through the backend's
+     * retarget(). A target the backend could not give leaves the renderer
+     * unusable until it is destroyed and recreated; the only caller treats
+     * any resize failure as fatal, so nothing rolls back. The scene arrives
+     * with each frame, so a resize touches no scene state.
      */
     [[nodiscard]] bool resize(std::uint32_t width,
-                              std::uint32_t height) noexcept override;
+                              std::uint32_t height) noexcept final;
 
     [[nodiscard]] bool render(
         const graphics::RenderScene& scene) noexcept override;
@@ -73,19 +54,40 @@ public:
      */
     void set_background(graphics::Color color) noexcept override;
 
+    /** Zero: a backend drawing into memory says otherwise. */
     [[nodiscard]] std::uintptr_t pixel_buffer() const noexcept override;
 
+    /** Zero: a backend drawing into memory says otherwise. */
     [[nodiscard]] std::uint32_t pixel_byte_length() const noexcept override;
 
+protected:
+    ThorVGRenderer() = default;
+
+    /**
+     * Points the backend's canvas at a first target of this size. False
+     * leaves the renderer unusable.
+     */
+    [[nodiscard]] bool start(std::uint32_t width, std::uint32_t height) noexcept;
+
+    /** False until there is a target, and after one that could not be kept. */
+    [[nodiscard]] bool usable() const noexcept { return usable_; }
+
 private:
-    ThorVGSoftwareRenderer() = default;
+    /** The canvas a frame is built on; the backend owns it. */
+    [[nodiscard]] virtual tvg::Canvas& canvas() noexcept = 0;
 
-    /** Builds the canvas, buffer, and target for the initial size. */
-    [[nodiscard]] bool init(std::uint32_t width, std::uint32_t height) noexcept;
+    /**
+     * Points the canvas at a target of this size: the one thing a backend
+     * does differently. The size has been validated, and is recorded once
+     * this answers true.
+     */
+    [[nodiscard]] virtual bool retarget(std::uint32_t width,
+                                        std::uint32_t height) noexcept = 0;
 
-    /** Points the canvas at a buffer; false when ThorVG rejects it. */
-    [[nodiscard]] bool set_target(std::uint32_t* buffer, std::uint32_t width,
-                                  std::uint32_t height) noexcept;
+    // The size the target has.
+    std::uint32_t width_ = 0;
+    std::uint32_t height_ = 0;
+    bool usable_ = false;
 
     /** Replaces the canvas contents with the background and the scene faces. */
     [[nodiscard]] bool rebuild_canvas(
@@ -123,12 +125,6 @@ private:
     // the one the native build with no UI in front of it still wants.
     graphics::Color background_ =
         graphics::canvas_background(graphics::CanvasTheme::Dark);
-
-    tvg::SwCanvas* canvas_ = nullptr;
-    std::uint32_t* buffer_ = nullptr;
-    std::uint32_t width_ = 0;
-    std::uint32_t height_ = 0;
-    bool usable_ = false;
 };
 
 }  // namespace rubiks::render

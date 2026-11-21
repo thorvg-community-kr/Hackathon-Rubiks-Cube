@@ -1,6 +1,7 @@
 import { appModeOf, type AppMode } from './AppMode.ts';
 import {
   startApp,
+  type AppController,
   type AppState,
   type StageView,
   type StartAppOptions,
@@ -15,11 +16,14 @@ import { attachCommandPalette, type Command } from './ui/CommandPalette.ts';
 import { attachDetailPanels } from './ui/DetailPanels.ts';
 import { createGameShell, ICONS, type GameShell } from './ui/GameShell.ts';
 import { lightingControls } from './ui/LightingControls.ts';
+import { attachRendererSwitch } from './ui/RendererSwitch.ts';
+import { rendererUrl } from './RendererQuery.ts';
 import { attachSettingsPanel, type SettingsPanel } from './ui/SettingsPanel.ts';
 import {
   CubeScene,
   CubeSurface,
   DEFAULT_CUBE_SIZE,
+  type CubeRenderer,
 } from './wasm/CubeEngine.ts';
 import {
   attachThemeController,
@@ -30,7 +34,18 @@ import {
 } from './ui/ThemeController.ts';
 
 /** Lifecycle entry point, injectable so tests can observe the wiring. */
-export type StartAppFn = (options: StartAppOptions) => Promise<unknown>;
+export type StartAppFn = (options: StartAppOptions) => Promise<AppController>;
+
+/**
+ * Opens this page again asking for another renderer; injectable, so tests
+ * see where the switch would go without a browser leaving the page.
+ */
+export type OpenWithRendererFn = (renderer: CubeRenderer) => void;
+
+/** Opens the page at its own address with `renderer` asked for. */
+function openWithRenderer(renderer: CubeRenderer): void {
+  window.location.assign(rendererUrl(window.location.href, renderer));
+}
 
 /** Browser feature detection seam, injectable for DOM integration tests. */
 export type SupportCheckFn = () => boolean;
@@ -295,6 +310,7 @@ export function bootstrap(
   supportCheck: SupportCheckFn = supportsBrowser,
   createTheme: ThemeFactory = createPageTheme,
   mode: AppMode = appModeOf(window.location.search),
+  openWith: OpenWithRendererFn = openWithRenderer,
 ): Promise<void> {
   const shell = createGameShell(app, mode);
   const statusElement = shell.ui.status;
@@ -324,6 +340,24 @@ export function bootstrap(
   const fail = (error: unknown): void => {
     console.error(error);
     setState('error', 'Failed to start the ThorVG engine.');
+  };
+
+  // The renderer switch comes on once startup has settled either way: at
+  // the renderer the engine settled on, or, for an engine that never
+  // started, at none, so any renderer can be tried instead.
+  const switchRenderers = (current: CubeRenderer | null): void => {
+    attachRendererSwitch({
+      buttons: shell.rendererButtons,
+      current,
+      switchTo: openWith,
+    });
+  };
+  const started = (app: AppController): void => {
+    switchRenderers(app.renderer);
+  };
+  const failedToStart = (error: unknown): void => {
+    fail(error);
+    switchRenderers(null);
   };
 
   if (!supportCheck()) {
@@ -387,7 +421,7 @@ export function bootstrap(
       onError: fail,
       theme: theme ?? undefined,
       mode,
-    }).then(() => undefined, fail);
+    }).then(started, failedToStart);
   }
 
   if (theme !== null) {
@@ -465,5 +499,5 @@ export function bootstrap(
     onError: fail,
     theme: theme ?? undefined,
     mode,
-  }).then(() => undefined, fail);
+  }).then(started, failedToStart);
 }

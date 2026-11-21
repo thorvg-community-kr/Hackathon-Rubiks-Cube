@@ -17,6 +17,13 @@ export type ThorvgRubiksModule = {
    * ArrayBuffer and never a SharedArrayBuffer.
    */
   readonly HEAPU8: Uint8Array<ArrayBuffer>;
+  /**
+   * Canvases Emscripten finds by key rather than by selector: the GPU
+   * renderer looks each surface's up under _thorvg_rubiks_gpu_canvas_key().
+   */
+  readonly specialHTMLTargets: Record<string, HTMLCanvasElement>;
+  /** Emscripten's reader for a NUL-terminated UTF-8 string at an address. */
+  UTF8ToString(pointer: number): string;
   _thorvg_rubiks_initialize(width: number, height: number): number;
   _thorvg_rubiks_render(): number;
   _thorvg_rubiks_shutdown(): void;
@@ -27,6 +34,19 @@ export type ThorvgRubiksModule = {
   _thorvg_rubiks_resize_surface(id: number, width: number, height: number): number;
   /** Which scenes surface `id` shows: cube 1, net 2, rings 4, axes 8. */
   _thorvg_rubiks_set_surface_scenes(id: number, scenes: number): number;
+  /**
+   * The key surface `id`'s canvas goes under in specialHTMLTargets for the
+   * GPU renderer: a NUL-terminated string's address, valid until the next call.
+   */
+  _thorvg_rubiks_gpu_canvas_key(id: number): number;
+  /**
+   * Draws surface `id` with the GPU (1 WebGL2, 2 WebGPU) on the canvas under
+   * its key: 0 refused with the canvas untouched, 1 drawn with the GPU,
+   * 2 refused after the canvas was taken.
+   */
+  _thorvg_rubiks_present_surface_on_gpu(id: number, backend: number): number;
+  /** The shared WebGPU device: 0 ready, 1 failed, 2 still pending. */
+  _thorvg_rubiks_webgpu_device_status(): number;
   /**
    * Lays surface `id`'s scenes out in an area of it, in its pixels; no width
    * or height is the whole surface.

@@ -14,7 +14,9 @@ import {
   type CubeCanvasTheme,
   type CubeEngineSize,
   type CubeLayoutArea,
+  type CubeRenderer,
 } from './wasm/CubeEngine.ts';
+import { readRendererQuery } from './RendererQuery.ts';
 import {
   canvasThemeOf,
   type EffectiveTheme,
@@ -57,6 +59,8 @@ export type EngineLike = GameEngine & {
     resizeSurface(id: CubeSurface, size: CubeEngineSize | null): boolean;
     /** Where on a surface its scenes are laid out; null is all of it. */
     setSurfaceLayoutArea(id: CubeSurface, area: CubeLayoutArea | null): void;
+    /** The renderer the canvases are drawn with. */
+    readonly renderer: CubeRenderer;
     /** A press on one surface, in that surface's pixels. */
     pointerDownOn(id: CubeSurface, x: number, y: number): boolean;
     pointerMove(x: number, y: number): void;
@@ -200,6 +204,8 @@ export type StartAppOptions = {
 };
 
 export type AppController = {
+  /** The renderer the engine settled on for the canvases. */
+  readonly renderer: CubeRenderer;
   /** Releases the observer, the listeners, and the engine together. */
   teardown(): void;
 };
@@ -291,36 +297,18 @@ function pressingSurface(engine: EngineLike, id: CubeSurface): PointerTarget {
 }
 
 /**
- * The most pixels the views are drawn at, all of them together.
+ * The pixel density every view is drawn at: the device's own, the same for
+ * all of them. A ratio that is not a positive number is taken as one.
  *
- * A software renderer's frame costs what its pixels cost, and a large stage
- * on a dense screen asks for more of them than anyone can see: past about two
- * and a half million a frame, the views are drawn at a lower density and
- * scaled up to their boxes, which on a screen that dense is not a difference
- * an eye makes out.
+ * There is no pixel budget any more. One was there while every frame was
+ * rasterized in software and copied out, a cost that grows with the pixels;
+ * with the GPU drawing the canvases the views are drawn at the screen's
+ * density, and a page that has fallen back to software pays for it.
  */
-export const MAX_STAGE_PIXELS = 2_600_000;
-
-/**
- * The pixel density every view is drawn at, the same for all of them.
- *
- * The device's own ratio, until the boxes together would ask for more pixels
- * than the budget; past it they come down together, so no view is drawn
- * sharper than the one beside it. A ratio that is not a positive number is
- * taken as one.
- */
-export function stageDensity(
-  boxes: readonly CubeEngineSize[],
-  devicePixelRatio: number,
-  pixelBudget: number = MAX_STAGE_PIXELS,
-): number {
-  const ratio =
-    Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
-      ? devicePixelRatio
-      : 1;
-  const area = boxes.reduce((sum, box) => sum + box.width * box.height, 0);
-  if (!(area > 0)) return ratio;
-  return Math.min(ratio, Math.sqrt(pixelBudget / area));
+export function stageDensity(devicePixelRatio: number): number {
+  return Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
+    ? devicePixelRatio
+    : 1;
 }
 
 /**
@@ -337,7 +325,10 @@ export async function startApp(
   const createEngine =
     options.createEngine ??
     ((target: HTMLCanvasElement, size: CubeEngineSize) =>
-      CubeEngine.create(target, { size }));
+      CubeEngine.create(target, {
+        size,
+        renderer: readRendererQuery(loc.href),
+      }));
   const createObserver =
     options.createObserver ??
     ((callback: () => void) => new ResizeObserver(callback));
@@ -375,13 +366,7 @@ export async function startApp(
    * drawn at a pixel.
    */
   const measure = (): (CubeEngineSize | null)[] => {
-    const density = stageDensity(
-      surfaces.map(({ canvas: target }) => ({
-        width: target.clientWidth,
-        height: target.clientHeight,
-      })),
-      win.devicePixelRatio,
-    );
+    const density = stageDensity(win.devicePixelRatio);
     return surfaces.map(({ canvas: target }) =>
       target.clientWidth === 0 || target.clientHeight === 0
         ? null
@@ -401,6 +386,10 @@ export async function startApp(
     canvas,
     measure()[0] ?? { width: 1, height: 1 },
   );
+  // Which renderer the page ended up with, for anyone looking at the page --
+  // the browser tests among them. The page's own code has it from the
+  // controller this returns.
+  canvas.dataset.renderer = engine.renderer;
 
   /**
    * Where on the cube's canvas the cube is laid out, in the canvas's pixels.
@@ -788,5 +777,5 @@ export async function startApp(
     throw error;
   }
 
-  return { teardown };
+  return { renderer: engine.renderer, teardown };
 }

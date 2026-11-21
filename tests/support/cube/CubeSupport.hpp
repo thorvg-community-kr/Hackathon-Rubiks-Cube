@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -27,21 +26,6 @@
  * belongs beside the tests that assert.
  */
 namespace rubiks::test {
-
-/** Converts a correctly shaped external painting to native row-major faces. */
-[[nodiscard]] inline std::vector<cube::FaceColor> native_painting(
-    const std::vector<cube::FaceColor>& painting, int size)
-{
-    const std::size_t span = static_cast<std::size_t>(size);
-    assert(size >= cube::kMinCubeSize &&
-           painting.size() == cube::kFaceCount * span * span);
-    std::vector<cube::FaceColor> native(painting.size());
-    for (const cube::SurfaceSticker sticker : cube::surface_cells(size)) {
-        native[cube::surface_index(sticker, size)] =
-            painting[cube::painting_index(sticker, size)];
-    }
-    return native;
-}
 
 /**
  * The six face turns of an N x N x N cube, by the letters they are written

@@ -98,96 +98,62 @@ thorvg-rubiks/
 ├── web/                     # Vite + TypeScript + HTML/CSS
 │   ├── index.html
 │   ├── package.json
-│   ├── tsconfig.json
-│   ├── vite.config.ts
-│   │
+│   ├── playwright.config.ts
 │   ├── public/
-│   │
+│   ├── tests/
+│   │   ├── unit/            # Vitest, fake Emscripten module
+│   │   └── e2e/             # Playwright: software, gpu
 │   └── src/
 │       ├── main.ts
+│       ├── bootstrap.ts     # DOM wiring
+│       ├── AppLifecycle.ts  # one engine's lifecycle
+│       ├── AppMode.ts       # ?extended
+│       ├── RendererQuery.ts # ?renderer=
 │       ├── style.css
-│       │
-│       ├── ui/
-│       │
+│       ├── ui/              # shell, settings, theme, renderer switch, menu
+│       ├── game/            # controller, session, timer, notation, sharing
 │       ├── input/
 │       │   └── PointerController.ts
-│       │
 │       └── wasm/
-│           └── CubeEngine.ts
+│           ├── CubeEngine.ts          # the one WASM boundary
+│           └── generated/             # Emscripten output + .d.ts
 │
 ├── engine/                  # C++ engine
 │   ├── meson.build
 │   └── src/
-│       ├── app/
-│       │   ├── Application.hpp
-│       │   ├── ApplicationState.hpp
-│       │   ├── Application.cpp
-│       │   ├── Settings.cpp
-│       │   ├── History.cpp
-│       │   ├── Solve.cpp
-│       │   ├── Ambient.cpp
-│       │   ├── Sharing.cpp
-│       │   └── Painting.cpp
-│       │
-│       ├── cube/
-│       │   ├── Cube.cpp
-│       │   ├── CubeDraft.cpp
-│       │   ├── Surface.cpp
-│       │   ├── Assembly.cpp
-│       │   ├── Permutation.cpp
-│       │   ├── Scramble.cpp
-│       │   ├── MoveTimeline.cpp
+│       ├── app/             # Application: surfaces, frames, history, solve,
+│       │                    # ambient, sharing, painting, settings
+│       ├── bindings/
+│       │   └── capi.cpp     # C ABI, primitive types only
+│       ├── cube/            # Cube, CubeDraft, CubeMove, PackedMove, Surface,
+│       │   │                # Assembly, Permutation, Scramble, MoveTimeline
 │       │   └── solver/
-│       │
-│       ├── graphics/
-│       │   ├── Camera.cpp
-│       │   ├── RenderPipeline.cpp
-│       │   ├── RenderScene.cpp
-│       │   │
-│       │   ├── passes/
-│       │   │   ├── BuildScenePass.cpp
-│       │   │   ├── TransformPass.cpp
-│       │   │   ├── ViewPass.cpp
-│       │   │   ├── ProjectionPass.cpp
-│       │   │   ├── CullPass.cpp
-│       │   │   └── DepthSortPass.cpp
-│       │   │
-│       │   └── thorvg/
-│       │       └── ThorVGRenderer.cpp
-│       │
-│       ├── interaction/
-│       │   ├── InteractionController.cpp
-│       │   ├── Picking.cpp
-│       │   ├── DragResolver.cpp
-│       │   └── InteractionState.cpp
-│       │
-│       ├── animation/
-│       │   └── CubeAnimation.cpp
-│       │
-│       ├── math/
-│       │   ├── Vec2.cpp
-│       │   ├── Vec3.cpp
-│       │   ├── Mat4.cpp
-│       │   ├── Quaternion.cpp
-│       │   └── Transform.cpp
-│       │
-│       └── bindings/
-│           └── capi.cpp
+│       ├── math/            # Angle, Projection, Quaternion
+│       ├── graphics/        # no ThorVG, enforced by the build
+│       │   ├── RenderScene.hpp, Layout, Palette, CanvasTheme, ...
+│       │   ├── 3d/          # Camera, CubeGeometry, Passes, Light, AxisGizmo
+│       │   ├── 2d/          # net/, rings/, SlotRing
+│       │   └── frame/       # FrameInputs: a canvas's frame, composed
+│       ├── interaction/     # InteractionController, Picking, DragResolver
+│       └── render/          # ThorVG enters here and nowhere else
+│           ├── Renderer.hpp           # the boundary the app owns
+│           ├── Renderers.hpp          # what the app sees: no ThorVG types
+│           ├── ThorVGRenderer.*       # the frame, on tvg::Canvas
+│           ├── ThorVGBackend.hpp      # target + canvas, in that order
+│           ├── ThorVGSoftwareRenderer.cpp
+│           └── ThorVGGpuRenderer.cpp  # WebGL2, WebGPU (WASM only)
 │
-├── tests/                   # Native unit tests
-│   ├── cube/
-│   ├── math/
-│   ├── graphics/
-│   └── interaction/
+├── tests/                   # Native unit tests (Catch2), one per layer
+│   ├── cube/  solver/  math/  graphics/  interaction/  app/
+│   └── support/             # helpers, behind the same walls as the layers
 │
 ├── subprojects/             # external C++ dependencies
-│   └── thorvg/
+│   └── thorvg/              # v1.1.4
 │
 ├── cross/                   # target toolchain configuration
 │   └── wasm32.txt
 │
 ├── meson.build
-├── meson_options.txt
 ├── build_wasm.sh
 │
 └── .github/
@@ -213,7 +179,7 @@ build/
 └── wasm/
 ```
 
-처음에는 `passes/` 등을 바로 만들지 않고 필요해질 때 분리해도 됩니다.
+계층 사이의 방향은 한쪽입니다: `cube`·`math`는 아무것도 include하지 않고, `graphics` → `cube`·`math`, `interaction` → `cube`·`graphics`·`math`, `render` → `graphics`, `app` → 그 전부, `bindings` → `app`. 각 계층이 자기 Meson target이라, 거꾸로 가는 코드는 그 계층의 테스트가 링크할 때 걸립니다. 다만 include 경로는 `engine/src` 하나를 함께 쓰므로 헤더만 거꾸로 include하는 것은 빌드가 막지 못하고 리뷰와 grep의 몫입니다. ThorVG는 다릅니다: 헤더가 `render/`에만 주어져 그 밖의 `#include <thorvg.h>`는 컴파일부터 실패합니다(§6).
 
 ---
 
@@ -330,7 +296,7 @@ Pass = Input → Output
 
 ## 6. ThorVG의 위치
 
-ThorVG dependency(의존성)는 최대한 graphics 마지막에만 둡니다.
+ThorVG dependency(의존성)는 graphics 마지막, `render/`에만 둡니다. `ThorVGRenderer`가 장면을 ThorVG의 공통 `tvg::Canvas`에 만들고, 그리는 대상만 백엔드마다 다릅니다: 메모리 버퍼(`ThorVGSoftwareRenderer.cpp`), 또는 WASM에서 페이지 캔버스의 WebGPU·WebGL2(`ThorVGGpuRenderer.cpp`). Application이 보는 것은 ThorVG 타입이 없는 `render/Renderers.hpp`(ThorVG 시작·정지, 크기 규칙, 렌더러 생성)뿐이고, `render_dep`은 ThorVG의 코드는 링크로 넘기되 헤더는 넘기지 않아 `render/` 밖의 `#include <thorvg.h>`는 빌드가 실패합니다. 자세한 내용은 [GPU backends](./tasks/gpu-backends.md).
 
 ```text
 Graphics Pipeline

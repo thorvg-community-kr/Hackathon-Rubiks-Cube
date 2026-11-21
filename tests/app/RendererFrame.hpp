@@ -12,7 +12,7 @@
 #include "graphics/Color.hpp"
 #include "graphics/RenderScene.hpp"
 #include "math/Types.hpp"
-#include "render/ThorVGSoftwareRenderer.hpp"
+#include "render/Renderers.hpp"
 
 /**
  * A renderer of a test's own, and the frame it leaves.
@@ -42,7 +42,7 @@ inline const graphics::Color kLight =
 
 /** A square frame and the renderer that holds its pixels. */
 struct Frame {
-    std::unique_ptr<render::ThorVGSoftwareRenderer> renderer;
+    std::unique_ptr<render::Renderer> renderer;
     std::uint32_t side = 0;
 
     [[nodiscard]] Rgba at(std::uint32_t x, std::uint32_t y) const
@@ -82,7 +82,7 @@ struct Frame {
                                 std::uint32_t side,
                                 graphics::Color ground = kDark)
 {
-    Frame frame{render::ThorVGSoftwareRenderer::create(side, side), side};
+    Frame frame{render::create_software_renderer(side, side), side};
     REQUIRE(frame.renderer);
     frame.renderer->set_background(ground);
     REQUIRE(frame.renderer->render(scene));

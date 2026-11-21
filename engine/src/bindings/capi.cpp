@@ -1,10 +1,29 @@
 #include <cstdint>
+#include <cstdio>
 
 #include "app/Application.hpp"
 
 // C ABI for browser clients. Every function uses primitive types only.
-// Return contract: 1 on success, 0 on failure; pointer and byte length
-// queries return 0 without a valid software buffer.
+// Return contract: 1 on success, 0 on failure, unless a function's own
+// comment names its values; pointer and byte length queries return 0 without
+// a valid software buffer.
+
+namespace {
+
+/**
+ * The key the page puts surface `id`'s canvas under in
+ * Module.specialHTMLTargets for the GPU renderer to find: written here only,
+ * and read by the page through thorvg_rubiks_gpu_canvas_key(). A key rather
+ * than a selector into the document, and no string crossing in.
+ */
+[[nodiscard]] const char* gpu_canvas_key(std::uint32_t id) noexcept
+{
+    static char key[32];
+    std::snprintf(key, sizeof key, "!rubiks-surface-%u", static_cast<unsigned>(id));
+    return key;
+}
+
+}  // namespace
 
 extern "C" {
 
@@ -54,6 +73,36 @@ int thorvg_rubiks_set_surface_scenes(
     std::uint32_t id, std::uint32_t scenes) noexcept
 {
     return rubiks::app::set_surface_scenes(id, scenes) ? 1 : 0;
+}
+
+/**
+ * Surface `id`'s canvas key, NUL-terminated, valid until the next call.
+ *
+ * @return the key's address in WASM memory.
+ */
+std::uintptr_t thorvg_rubiks_gpu_canvas_key(std::uint32_t id) noexcept
+{
+    return reinterpret_cast<std::uintptr_t>(gpu_canvas_key(id));
+}
+
+/**
+ * Draws surface `id` with the GPU (`backend` 1 WebGL2, 2 WebGPU) on the canvas
+ * the page put under its key.
+ *
+ * @return rubiks::app::GpuPresentation: 0 refused (the canvas untouched),
+ *         1 drawn with the GPU, 2 refused after the canvas was taken.
+ */
+std::uint32_t thorvg_rubiks_present_surface_on_gpu(std::uint32_t id,
+                                                   std::uint32_t backend) noexcept
+{
+    return static_cast<std::uint32_t>(
+        rubiks::app::present_surface_on_gpu(id, backend, gpu_canvas_key(id)));
+}
+
+/** rubiks::render::GpuDeviceStatus: 0 ready, 1 failed, 2 still pending. */
+std::uint32_t thorvg_rubiks_webgpu_device_status() noexcept
+{
+    return static_cast<std::uint32_t>(rubiks::app::webgpu_device_status());
 }
 
 /**

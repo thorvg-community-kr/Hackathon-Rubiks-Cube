@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { AppMode } from '../../src/AppMode.ts';
 import {
-  MAX_STAGE_PIXELS,
   stageDensity,
   startApp,
   type EngineLike,
@@ -64,6 +63,7 @@ function createHarness(overrides: {
   const canvasState = {
     width: 100,
     height: 50,
+    dataset: {} as DOMStringMap,
     clientWidth: 100,
     clientHeight: 50,
     addEventListener: vi.fn((type: string, listener: (event: Event) => void) => {
@@ -121,6 +121,7 @@ function createHarness(overrides: {
     }),
     setSurfaceScenes: vi.fn(),
     setSurfaceLayoutArea: vi.fn(),
+    renderer: 'software' as const,
     // Commits the size to the canvas the way CubeEngine does; surface 0's
     // canvas is the one the engine was made with.
     resizeSurface: vi.fn(
@@ -310,8 +311,10 @@ describe('startApp', () => {
   it('renders once, reaches ready, and wires the listeners', async () => {
     const harness = createHarness();
 
-    await harness.start();
+    const controller = await harness.start();
 
+    // The renderer the engine settled on, handed to the page.
+    expect(controller.renderer).toBe('software');
     expect(harness.engine.render).toHaveBeenCalledTimes(1);
     expect(harness.states.at(-1)?.[0]).toBe('ready');
     expect(harness.observer.observe).toHaveBeenCalledTimes(1);
@@ -1059,22 +1062,21 @@ describe('startApp with a canvas per view', () => {
     expect(harness.engine.render).toHaveBeenCalledTimes(1);
   });
 
-  it('draws every view at one density once together they pass the budget', async () => {
+  it('draws every view at the device density however many pixels they come to', async () => {
     const { net, views } = createViews();
     net.state.clientWidth = 2000;
     net.state.clientHeight = 1500;
     const harness = createHarness({ views });
     await harness.start();
 
-    const area = 100 * 50 + 2000 * 1500 + 20 * 20;
-    const density = Math.sqrt(MAX_STAGE_PIXELS / area);
+    // No budget brings a large stage down any more.
     expect(harness.engine.resizeSurface).toHaveBeenCalledWith(CubeSurface.Net, {
-      width: Math.round(2000 * density),
-      height: Math.round(1500 * density),
+      width: 2000,
+      height: 1500,
     });
     expect(harness.engine.resizeSurface).toHaveBeenCalledWith(CubeSurface.Cube, {
-      width: Math.round(100 * density),
-      height: Math.round(50 * density),
+      width: 100,
+      height: 50,
     });
   });
 
@@ -1223,32 +1225,15 @@ describe('startApp with a canvas per view', () => {
 });
 
 describe('stageDensity', () => {
-  it('keeps the device ratio while the views fit the budget', () => {
-    expect(stageDensity([{ width: 100, height: 50 }], 2)).toBe(2);
-    expect(stageDensity([], 3)).toBe(3);
-  });
-
-  it('brings every view down together past the budget', () => {
-    const boxes = [
-      { width: 1000, height: 1000 },
-      { width: 600, height: 400 },
-    ];
-    const density = stageDensity(boxes, 2);
-    expect(density).toBeLessThan(2);
-    const pixels = boxes.reduce(
-      (sum, box) => sum + box.width * density * box.height * density,
-      0,
-    );
-    expect(pixels).toBeCloseTo(MAX_STAGE_PIXELS, -2);
-  });
-
-  it('takes a budget of its own', () => {
-    expect(stageDensity([{ width: 100, height: 100 }], 1, 2_500)).toBe(0.5);
+  it('is the device ratio, whatever the stage asks for', () => {
+    expect(stageDensity(2)).toBe(2);
+    expect(stageDensity(3)).toBe(3);
   });
 
   it('takes a ratio that is not a positive number as one', () => {
-    expect(stageDensity([{ width: 10, height: 10 }], Number.NaN)).toBe(1);
-    expect(stageDensity([{ width: 10, height: 10 }], 0)).toBe(1);
+    expect(stageDensity(Number.NaN)).toBe(1);
+    expect(stageDensity(0)).toBe(1);
+    expect(stageDensity(-2)).toBe(1);
   });
 });
 

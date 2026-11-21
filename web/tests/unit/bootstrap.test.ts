@@ -30,7 +30,7 @@ describe('bootstrap', () => {
       app,
       async (options) => {
         options.setState('ready', 'ThorVG software renderer');
-        return { teardown: () => {} };
+        return { renderer: 'software' as const, teardown: () => {} };
       },
       () => true,
       () => null,
@@ -190,6 +190,66 @@ describe('bootstrap', () => {
     );
   });
 
+  it('turns the renderer switch on once started, pressing the renderer it got', async () => {
+    const app = createApp();
+    let loaded: () => void = () => {};
+    const openWith = vi.fn();
+
+    const booted = bootstrap(
+      app,
+      (options) =>
+        new Promise((resolve) => {
+          loaded = () => resolve({ renderer: 'webgl', teardown: () => {} });
+        }),
+      () => true,
+      () => null,
+      'extended',
+      openWith,
+    );
+    const choices = [
+      ...app.querySelectorAll<HTMLButtonElement>('[data-renderer-choice]'),
+    ];
+    expect(choices.every((button) => button.disabled)).toBe(true);
+
+    loaded();
+    await booted;
+    expect(choices.every((button) => !button.disabled)).toBe(true);
+    expect(
+      choices
+        .filter((button) => button.getAttribute('aria-pressed') === 'true')
+        .map((button) => button.dataset.rendererChoice),
+    ).toEqual(['webgl']);
+
+    // The other renderers open the page again; the one drawing does not.
+    choices.find((button) => button.dataset.rendererChoice === 'webgl')!.click();
+    expect(openWith).not.toHaveBeenCalled();
+    choices.find((button) => button.dataset.rendererChoice === 'webgpu')!.click();
+    expect(openWith).toHaveBeenCalledExactlyOnceWith('webgpu');
+  });
+
+  it('offers every renderer, none pressed, when startup rejects', async () => {
+    const app = createApp();
+
+    await bootstrap(
+      app,
+      async () => {
+        throw new Error('startup failed');
+      },
+      () => true,
+      () => null,
+      'minimal',
+    );
+
+    const choices = [
+      ...app.querySelectorAll<HTMLButtonElement>('.header-switches [data-renderer-choice]'),
+    ];
+    expect(choices).toHaveLength(3);
+    expect(choices.every((button) => !button.disabled)).toBe(true);
+    expect(choices.some((button) => button.getAttribute('aria-pressed') === 'true')).toBe(
+      false,
+    );
+  });
+
   it('shows the error UI when a failure arrives after ready', async () => {
     const app = createApp();
     let reportError: StartAppOptions['onError'] = () => {};
@@ -199,7 +259,7 @@ describe('bootstrap', () => {
       async (options) => {
         options.setState('ready', 'ThorVG software renderer');
         reportError = options.onError;
-        return { teardown: () => {} };
+        return { renderer: 'software' as const, teardown: () => {} };
       },
       () => true,
       () => null,
@@ -240,7 +300,7 @@ describe('bootstrap', () => {
         app,
         async (options) => {
           started = options;
-          return { teardown: () => {} };
+          return { renderer: 'software' as const, teardown: () => {} };
         },
         () => true,
         theme,

@@ -10,8 +10,10 @@ needs_exe_wrapper = true
 cpp_std = 'c++17'
 debug = false
 optimization = '2'
-cpp_args = ['-fno-exceptions']
-cpp_link_args = ['-fno-exceptions']
+# The WebGPU port gives ThorVG's WebGPU engine and the engine's GPU renderer
+# <webgpu/webgpu.h>; it is needed to compile them as well as to link.
+cpp_args = ['-fno-exceptions', '--use-port=emdawnwebgpu']
+cpp_link_args = ['-fno-exceptions', '--use-port=emdawnwebgpu', '-sMAX_WEBGL_VERSION=2']
 
 [host_machine]
 system = 'emscripten'
